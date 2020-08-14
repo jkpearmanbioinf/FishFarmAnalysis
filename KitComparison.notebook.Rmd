@@ -1,0 +1,1768 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Load packages
+
+```{r}
+library(data.table)
+library(reshape2)
+library(phyloseq)
+```
+
+
+Import files
+
+```{r}
+features_16S_input = fread("~/Documents/Bioinformatics/Xav_FishFarm/feature-table16S.txt")
+taxo_16S = fread("~/Documents/Bioinformatics/Xav_FishFarm/taxonomy16S.tsv")
+
+features_18S_input = fread("~/Documents/Bioinformatics/Xav_FishFarm/feature-table18S.txt")
+taxo_18S = fread("~/Documents/Bioinformatics/Xav_FishFarm/taxonomy18S.tsv")
+
+
+map_16S.1 = fread("~/Documents/Bioinformatics/Xav_FishFarm/Metadata_16S_Xav.txt")
+map_16S = colsplit(map_16S.1$Second_label,"_",c("Target_gene","Kit","Sample_type"))
+map_16S$Distance = substr(map_16S$Sample_type,1,nchar(map_16S$Sample_type)-1)
+rownames(map_16S) = map_16S.1$`#SampleID`
+map_16S$Combined <- paste(map_16S$Kit, map_16S$Distance,sep=".")
+
+map_18S.1 = fread("~/Documents/Bioinformatics/Xav_FishFarm/Metadata_18S_Xav.txt")
+map_18S = colsplit(map_18S.1$Second_label,"_",c("Target_gene","Kit","Sample_type"))
+map_18S$Distance = substr(map_18S$Sample_type,1,nchar(map_18S$Sample_type)-1)
+rownames(map_18S) = map_18S.1$`#SampleID`
+map_18S$Combined <- paste(map_18S$Kit, map_18S$Distance,sep=".")
+
+
+features_16S = otu_table(features_16S_input[,-1], taxa_are_rows = T)
+rownames(features_16S) = features_16S_input$`#OTU ID`
+tax_table_16S = colsplit(taxo_16S$Taxon,";",c("Kingdom","Phylum","Class","Order","Family","Genus","Species"))
+tax_table_16S$Class[tax_table_16S$Class == "Fusobacteriia"] <- "Fusobacteria"
+tax_table_16S = tax_table(tax_table_16S)
+rownames(tax_table_16S) = taxo_16S$`Feature ID`
+
+
+features_18S = otu_table(features_18S_input[,-1], taxa_are_rows = T)
+rownames(features_18S) = features_18S_input$`#OTU ID`
+tax_table_18S = colsplit(taxo_18S$Taxon,";",c("Kingdom","Phylum","Class","Order","Family","Genus","Species"))
+tax_table_18S = tax_table(tax_table_18S)
+rownames(tax_table_18S) = taxo_18S$`Feature ID`
+
+
+
+map_16S_table = sample_data(map_16S)
+row.names(map_16S_table) = colnames(features_16S)
+
+map_18S_table = sample_data(map_18S)
+row.names(map_18S_table) = colnames(features_18S)
+
+
+ps_16S = phyloseq(features_16S,tax_table_16S,map_16S_table)
+colnames(tax_table(ps_16S)) = c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+
+ps_16S = subset_taxa(ps_16S, Kingdom!="Eukaryota")
+ps_16S = subset_taxa(ps_16S, Order!="Chloroplast"  | is.na(Order))
+ps_16S = subset_taxa(ps_16S, Family!="Mitochondria"  | is.na(Family))
+
+
+ps_16S_neg = subset_samples(ps_16S , Kit == "comb-neg" | Kit == "negMQ" | Kit == "neg")
+ps_16S_neg_max <- apply(as.data.frame(as.matrix(otu_table(ps_16S_neg))), 1, max)
+ps_16S_neg_max_vec <- as.vector(ps_16S_neg_max)
+ps_16S_neg_sums <- colSums(otu_table(ps_16S_neg))
+ps_16S.mat = as(t(otu_table(ps_16S)), "matrix")
+ps_16S_negdf = as.data.frame(ps_16S.mat)
+ps_16S_negdf[,1:length(ps_16S_negdf)] <- sweep(ps_16S_negdf[,1:length(ps_16S_negdf)],2,ps_16S_neg_max_vec)
+ps_16S_negdf <- replace(ps_16S_negdf, ps_16S_negdf < 0, 0)
+
+
+ps_16S.subtract.ps <- phyloseq(otu_table(ps_16S_negdf, taxa_are_rows=FALSE),
+                                        sample_data(map_16S_table), 
+                                        tax_table(tax_table_16S))
+colnames(tax_table(ps_16S.subtract.ps)) = c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+
+
+ps_18S = phyloseq(features_18S,tax_table_18S,map_18S_table)
+colnames(tax_table(ps_18S)) = c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+
+
+ps_18S_neg = subset_samples(ps_18S , Kit == "comb-neg" | Kit == "negMQ" | Kit == "neg")
+ps_18S_neg_max <- apply(as.data.frame(as.matrix(otu_table(ps_18S_neg))), 1, max)
+ps_18S_neg_max_vec <- as.vector(ps_18S_neg_max)
+ps_18S_neg_sums <- colSums(otu_table(ps_18S_neg))
+ps_18S.mat = as(t(otu_table(ps_18S)), "matrix")
+ps_18S_negdf = as.data.frame(ps_18S.mat)
+ps_18S_negdf[,1:length(ps_18S_negdf)] <- sweep(ps_18S_negdf[,1:length(ps_18S_negdf)],2,ps_18S_neg_max_vec)
+ps_18S_negdf <- replace(ps_18S_negdf, ps_18S_negdf < 0, 0)
+
+ps_18S.subtract.ps <- phyloseq(otu_table(ps_18S_negdf, taxa_are_rows=FALSE),
+                               sample_data(map_18S_table), 
+                               tax_table(tax_table_18S))
+colnames(tax_table(ps_18S.subtract.ps)) = c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+```
+
+Analysis packages
+```{r}
+library(tidyverse)
+library(ampvis2)
+library(grid)
+library(ggplot2)
+library(RVAideMemoire)
+library(vegan)
+library(VennDiagram)
+library(ranacapa)
+```
+
+
+Calculate richness and plot
+
+```{r}
+ps_16S_no_neg = ps_16S.subtract.ps %>% subset_samples(Kit != "neg") %>% subset_samples(Kit != "negMQ") %>% subset_samples(Kit != "comb-neg")
+ps_16S_no_neg = filter_taxa(ps_16S_no_neg, function(x) sum(x) > 0, TRUE)
+
+sample.sums.16S <- as.data.frame(sample_sums(ps_16S_no_neg))
+
+ps_16S_no_neg_min4000 = prune_samples(names(which(sample_sums(ps_16S_no_neg) >= 4000)), ps_16S_no_neg)
+
+
+#rarecurve(t(otu_table(ps_16S_no_neg_min4000)), step=100, cex=0.5)
+
+set.seed(84)
+ps_16S_no_neg_min4000 = rarefy_even_depth(ps_16S_no_neg_min4000)
+
+
+ps_18S_no_neg = ps_18S.subtract.ps %>% subset_samples(Kit != "neg") %>% subset_samples(Kit != "negMQ") %>% subset_samples(Kit != "comb-neg")
+ps_18S_no_neg = filter_taxa(ps_18S_no_neg, function(x) sum(x) > 0, TRUE)
+
+sample.sums.18S <- as.data.frame(sample_sums(ps_18S_no_neg))
+
+ps_18S_no_neg_min10000 = prune_samples(names(which(sample_sums(ps_18S_no_neg) >= 10000)), ps_18S_no_neg)
+
+#rarecurve(t(otu_table(ps_18S_no_neg_min10000)), step=100, cex=0.5)
+
+set.seed(87)
+ps_18S_no_neg_min10000 = rarefy_even_depth(ps_18S_no_neg_min10000)
+
+
+richness_16S = plot_richness(ps_16S_no_neg_min4000, x="Kit", measures=c("Observed","Chao1", "Shannon"))
+richness_16S = richness_16S$data
+richness_16S$Distance = factor(richness_16S$Distance, levels = c("Pen", "50", "150", "CTL"))
+
+richness_18S = plot_richness(ps_18S_no_neg_min10000, x="Kit", measures=c("Observed","Chao1", "Shannon"))
+richness_18S = richness_18S$data
+richness_18S$Distance = factor(richness_18S$Distance, levels = c("Pen", "50", "150", "CTL"))
+
+
+richness = rbind(richness_16S,richness_18S)
+
+richness$Kit2 <- ifelse(richness$Kit == "Q1", 'Q.PS',
+                        ifelse(richness$Kit == "Q2", 'Q.PS.Pro',
+                               ifelse(richness$Kit == "QIA2gs", 'QIA2', 
+                                      ifelse(richness$Kit =="FAV2", 'FAV2',
+                                             ifelse(richness$Kit =="FAV5", 'FAV5', "No")))))
+
+richness$Kit2 = factor(richness$Kit2, levels = c("Q.PS", "Q.PS.Pro", "QIA2", "FAV2", "FAV5"))
+
+richness$Target_gene2 <- ifelse(richness$Target_gene == "16S", 'Prokaryotes',
+                                ifelse(richness$Target_gene == "18S", 'Eukaryotes',"No"))
+
+
+colpalette = c("coral", "darkorange3", "firebrick4", "deepskyblue", "deepskyblue4")
+
+richness_plot <- ggplot(subset(richness, variable == "Observed"), aes(Kit2, value, colour=Kit2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0) +
+  geom_jitter(position=position_jitter(0.2), aes(shape=Distance)) +
+  theme_bw() +
+  ylab("Number of ASVs") +
+  xlab("") +
+  facet_grid(Target_gene2~., scales = "free") +
+  theme(legend.title=element_text(size=12, color="black")) + 
+  theme(axis.title=element_text(size=12, color="black")) + 
+  theme(legend.text=element_text(size=12, color="black")) + 
+  theme(plot.title=element_text(size=12, color="black")) + 
+  theme(axis.text=element_text(size=12, color="black")) +
+  theme(panel.background = element_rect(fill="transparent"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill="transparent", colour=NA),
+        legend.background = element_rect(fill="transparent"),
+        legend.key = element_rect(fill = NA)) + 
+  guides(shape = guide_legend(title="Distance (m)", override.aes = list(size = 2, color="black")),
+         colour= guide_legend(title="Kit")) + 
+  scale_color_manual(values=colpalette) +
+  theme(axis.text.x=element_text(colour = c("coral", "darkorange3", "firebrick4", "deepskyblue", "deepskyblue4"))) 
+
+
+cairo_ps(file="Fish_Farm_richness.eps", width=7, height=5, bg="transparent")
+richness_plot
+dev.off()
+
+obs.rich.16S <- subset(richness_16S, variable == "Observed")
+
+shapiro.test(sqrt(obs.rich.16S$value))
+bartlett.test(sqrt(value) ~ Kit, data = obs.rich.16S)
+
+
+res.aov16S <- aov(sqrt(value) ~ Kit + Distance, data = obs.rich.16S)
+summary(res.aov16S)
+TukeyHSD(res.aov16S, which = "Kit")
+
+
+
+obs.rich.18S <- subset(richness_18S, variable == "Observed")
+
+
+shapiro.test(sqrt(obs.rich.18S$value))
+bartlett.test(sqrt(value) ~ Kit, data = obs.rich.18S)
+
+
+res.aov18S <- aov(sqrt(value) ~ Kit + Distance, data = obs.rich.18S)
+summary(res.aov18S)
+TukeyHSD(res.aov18S, which = "Kit")
+
+
+Shannon.rich.16S <- subset(richness_16S, variable == "Shannon")
+
+shapiro.test(sqrt(Shannon.rich.16S$value))
+bartlett.test(sqrt(value) ~ Kit, data = Shannon.rich.16S)
+
+
+res.aov16S <- aov(sqrt(value) ~ Kit * Distance, data = Shannon.rich.16S)
+summary(res.aov16S)
+TukeyHSD(res.aov16S)
+
+
+
+Shannon.rich.18S <- subset(richness_18S, variable == "Shannon")
+
+shapiro.test(sqrt(Shannon.rich.18S$value))
+bartlett.test(sqrt(value) ~ Kit, data = Shannon.rich.18S)
+
+
+res.aov18S <- aov(sqrt(value) ~ Kit * Distance, data = Shannon.rich.18S)
+summary(res.aov18S)
+TukeyHSD(res.aov18S, which = "Kit")
+```
+
+
+Multivariate analysis
+
+```{r}
+
+colpalette = c("deepskyblue", "deepskyblue4", "coral", "darkorange3", "firebrick4")
+
+sample_data(ps_16S_no_neg_min4000)$Kit2 <- ifelse(sample_data(ps_16S_no_neg_min4000)$Kit == "Q1", 'Q.PS',
+                                              ifelse(sample_data(ps_16S_no_neg_min4000)$Kit == "Q2", 'Q.PS.Pro',
+                                                     ifelse(sample_data(ps_16S_no_neg_min4000)$Kit == "QIA2gs", 'QIA2', 
+                                                            ifelse(sample_data(ps_16S_no_neg_min4000)$Kit =="FAV2", 'FAV2',
+                                                                   ifelse(sample_data(ps_16S_no_neg_min4000)$Kit =="FAV5", 'FAV5', "No")))))
+
+
+ps_16S_no_neg_min4000.sqrt <- transform_sample_counts(ps_16S_no_neg_min4000, function(x) sqrt(x))
+
+sample_data(ps_16S_no_neg_min4000.sqrt)$Distance = factor(sample_data(ps_16S_no_neg_min4000.sqrt)$Distance, levels = c("Pen", "50", "150", "CTL"))
+
+sample_data(ps_16S_no_neg_min4000.sqrt)$Distance = factor(sample_data(ps_16S_no_neg_min4000.sqrt)$Distance, levels = c("Pen", "50", "150", "CTL"))
+
+
+ps16S_ord = ordinate(ps_16S_no_neg_min4000.sqrt, "NMDS", "bray")
+
+
+p.16S = plot_ordination(ps_16S_no_neg_min4000.sqrt, ps16S_ord, color = "Kit2", shape = "Distance")
+p.16S = p.16S + geom_point(size = 3) +
+  theme(legend.title=element_text(size=16, color="black")) + 
+  theme(axis.title=element_text(size=16, color="black")) + 
+  theme(legend.text=element_text(size=14, color="black")) + 
+  theme(plot.title=element_text(size=14, color="black")) + 
+  theme(axis.text=element_text(size=14, color="black")) +
+  theme(panel.background = element_rect(fill="transparent", colour = "grey50"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill="transparent", colour=NA),
+        legend.background = element_rect(fill="transparent"),
+        legend.key = element_rect(fill = NA)) + 
+  guides(shape = guide_legend(title="Distance (m)", override.aes = list(size = 2, color="black")),
+         color = guide_legend(title="Kit")) + 
+  scale_color_manual(values=colpalette) +
+  ggtitle("A")
+
+
+cairo_ps(file="Fish_Farm_NMDS.16S.eps", width=7, height=5, bg="transparent")
+p.16S
+dev.off()
+
+
+
+ps_16S_no_neg_min4000_df = as.data.frame(otu_table(ps_16S_no_neg_min4000))
+transformed_16S_data <- wisconsin(sqrt(ps_16S_no_neg_min4000_df))
+transformed_16S_data <- transformed_16S_data[ order(row.names(transformed_16S_data)), ]
+map_16S = map_16S[order(row.names(map_16S)),]
+dis_16S <- vegdist(transformed_16S_data, method="bray")
+adonis(dis_16S ~ Kit*Distance,data=map_16S[row.names(map_16S)%in%rownames(ps_16S_no_neg_min4000_df),], permutations=999)
+
+posthoc_FL <-pairwise.adonis2(dis_16S~Kit*Distance, data=map_16S[row.names(map_16S)%in%rownames(ps_16S_no_neg_min4000_df),])
+
+sample_data(ps_18S_no_neg_min10000)$Kit2 <- ifelse(sample_data(ps_18S_no_neg_min10000)$Kit == "Q1", 'Q.PS',
+                                              ifelse(sample_data(ps_18S_no_neg_min10000)$Kit == "Q2", 'Q.PS.Pro',
+                                                     ifelse(sample_data(ps_18S_no_neg_min10000)$Kit == "QIA2gs", 'QIA2', 
+                                                            ifelse(sample_data(ps_18S_no_neg_min10000)$Kit =="FAV2", 'FAV2',
+                                                                   ifelse(sample_data(ps_18S_no_neg_min10000)$Kit =="FAV5", 'FAV5', "No")))))
+
+
+ps_18S_no_neg_min10000.sqrt <- transform_sample_counts(ps_18S_no_neg_min10000, function(x) sqrt(x))
+
+sample_data(ps_18S_no_neg_min10000.sqrt)$Distance = factor(sample_data(ps_18S_no_neg_min10000.sqrt)$Distance, levels = c("Pen", "50", "150", "CTL"))
+
+
+ps18S_ord = ordinate(ps_18S_no_neg_min10000.sqrt, "NMDS", "bray")
+
+
+p.18S = plot_ordination(ps_18S_no_neg_min10000.sqrt, ps18S_ord, color = "Kit2", shape = "Distance")
+p.18S = p.18S + geom_point(size = 3) +
+  theme(legend.title=element_text(size=16, color="black")) + 
+  theme(axis.title=element_text(size=16, color="black")) + 
+  theme(legend.text=element_text(size=14, color="black")) + 
+  theme(plot.title=element_text(size=14, color="black")) + 
+  theme(axis.text=element_text(size=14, color="black")) +
+  theme(panel.background = element_rect(fill="transparent", colour = "grey50"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill="transparent", colour=NA),
+        legend.background = element_rect(fill="transparent"),
+        legend.key = element_rect(fill = NA)) + 
+  guides(shape = guide_legend(title="Distance (m)", override.aes = list(size = 2, color="black")),
+         color = guide_legend(title="Kit")) + 
+  scale_color_manual(values=colpalette) +
+  ggtitle("B")
+
+
+cairo_ps(file="Fish_Farm_NMDS.18S.eps", width=7, height=5, bg="transparent")
+p.18S
+dev.off()
+
+
+
+ps_18S_no_neg_min10000_df = as.data.frame(otu_table(ps_18S_no_neg_min10000))
+transformed_18S_data <- wisconsin(sqrt(ps_18S_no_neg_min10000_df))
+transformed_18S_data <- transformed_18S_data[ order(row.names(transformed_18S_data)), ]
+map_18S = map_18S[order(row.names(map_18S)),]
+dis_18S <- vegdist(transformed_18S_data, method="bray")
+adonis(dis_18S ~ Kit*Distance,data=map_18S[row.names(map_18S)%in%rownames(ps_18S_no_neg_min10000_df),], permutations=999)
+
+
+postscript(file="Kit.NMDS.eps", width=10, height=5, colormodel="cmyk", family="serif", horizontal=FALSE, onefile=FALSE, paper="special")
+grid.newpage()
+pushViewport(viewport(layout=grid.layout(1,2, heights=c(5,5), width=c(5,6.5))))
+print(p.16S + theme(legend.position = ""), vp=viewport(layout.pos.row=1, layout.pos.col=1))
+print(p.18S, vp=viewport(layout.pos.row=1, layout.pos.col=2))
+dev.off()
+
+
+```
+
+Composition
+
+```{r}
+sample_data(ps_18S_no_neg_min10000)$Kit2 <- ifelse(sample_data(ps_18S_no_neg_min10000)$Kit == "Q1", 'Q.PS',
+                                              ifelse(sample_data(ps_18S_no_neg_min10000)$Kit == "Q2", 'Q.PS.Pro',
+                                                     ifelse(sample_data(ps_18S_no_neg_min10000)$Kit == "QIA2gs", 'QIA2', 
+                                                            ifelse(sample_data(ps_18S_no_neg_min10000)$Kit =="FAV2", 'FAV2',
+                                                                   ifelse(sample_data(ps_18S_no_neg_min10000)$Kit =="FAV5", 'FAV5', "No")))))
+
+
+
+ps_18S_no_neg_min10000.merged <- merge_samples(ps_18S_no_neg_min10000, "Kit2", fun=mean)
+
+
+ps_18S_class_perc = transform_sample_counts(ps_18S_no_neg_min10000.merged, function(OTU) OTU/sum(OTU)*100)
+
+
+devtools::source_gist("8d0ca4206a66be7ff6d76fc4ab8e66c6")
+
+ps_18S_class_perc_ampvis2_obj <- phyloseq_to_ampvis2(ps_18S_class_perc)
+
+
+composition18S <- amp_heatmap(data = ps_18S_class_perc_ampvis2_obj, tax_aggregate = "Class", normalise = FALSE, order_x_by = c("Q.PS", "Q.PS.Pro", "QIA2", "FAV2", "FAV5")) + 
+  theme_classic() + 
+  ggtitle("B") +
+  theme(axis.text = element_text(size=16, colour="black"),
+        legend.text = element_text(size=14, colour="black"),
+        legend.title = element_text(size=16, colour="black"),
+        plot.title = element_text(size=16, colour="black"))
+
+
+
+
+sample_data(ps_16S_no_neg_min4000)$Kit2 <- ifelse(sample_data(ps_16S_no_neg_min4000)$Kit == "Q1", 'Q.PS',
+                                              ifelse(sample_data(ps_16S_no_neg_min4000)$Kit == "Q2", 'Q.PS.Pro',
+                                                     ifelse(sample_data(ps_16S_no_neg_min4000)$Kit == "QIA2gs", 'QIA2', 
+                                                            ifelse(sample_data(ps_16S_no_neg_min4000)$Kit =="FAV2", 'FAV2',
+                                                                   ifelse(sample_data(ps_16S_no_neg_min4000)$Kit =="FAV5", 'FAV5', "No")))))
+
+
+
+
+ps_16S_no_neg_min4000.merged <- merge_samples(ps_16S_no_neg_min4000, "Kit2", fun=mean)
+
+
+ps_16S_class_perc = transform_sample_counts(ps_16S_no_neg_min4000.merged, function(OTU) OTU/sum(OTU)*100)
+
+
+
+ps_16S_class_perc_ampvis2_obj <- phyloseq_to_ampvis2(ps_16S_class_perc)
+
+
+composition16S <- amp_heatmap(data = ps_16S_class_perc_ampvis2_obj, tax_aggregate = "Class", normalise = FALSE, order_x_by = c("Q.PS", "Q.PS.Pro", "QIA2", "FAV2", "FAV5")) +
+  theme_classic() + 
+  ggtitle("A") +
+  theme(axis.text = element_text(size=16, colour="black"),
+        legend.text = element_text(size=14, colour="black"),
+        legend.title = element_text(size=16, colour="black"),
+        plot.title = element_text(size=16, colour="black"))
+
+
+
+postscript(file="Composition.eps", width=15, height=5, colormodel="cmyk", family="serif", horizontal=FALSE, onefile=FALSE, paper="special")
+grid.newpage()
+pushViewport(viewport(layout=grid.layout(1,2, heights=c(5,5), width=c(5, 6))))
+print(composition16S + theme(legend.position = ""), vp=viewport(layout.pos.row=1, layout.pos.col=1))
+print(composition18S, vp=viewport(layout.pos.row=1, layout.pos.col=2))
+dev.off()
+```
+
+
+Composition with distance 
+
+```{r}
+sample_data(ps_16S_no_neg_min4000)$Distance <- as.factor(sample_data(ps_16S_no_neg_min4000)$Distance)
+sample_data(ps_16S_no_neg_min4000)$Kit2 <- as.factor(sample_data(ps_16S_no_neg_min4000)$Kit2)
+
+ps_16S_no_neg_min4000.merged2 <- merge_samples(ps_16S_no_neg_min4000, "Combined", fun=mean)
+
+ps_16S_no_neg_min4000.merged2.perc = transform_sample_counts(ps_16S_no_neg_min4000.merged2, function(OTU) OTU/sum(OTU)*100)
+
+
+ps_16S_no_neg_min4000.merged2.perc.subset <- subset_taxa(ps_16S_no_neg_min4000.merged2.perc, (Class %in% c("Bacteroidia", "Campylobacteria", "Acidimicrobiia",
+                                                                                                           "Alphaproteobacteria", "Planctomycetacia", "Anaerolineae", 
+                                                                                                           "Gammaproteobacteria", "Clostridia", "Deltaproteobacteria", "Fusobacteria")))
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class = tax_glom(ps_16S_no_neg_min4000.merged2.perc.subset, "Class")
+
+
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.df <- as.data.frame(t(otu_table(ps_16S_no_neg_min4000.merged2.perc.subset.class)))
+ps_16S_no_neg_min4000.merged2.perc.subset.class.df.1 <- setDT(ps_16S_no_neg_min4000.merged2.perc.subset.class.df, keep.rownames = TRUE)[]
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df <- as.data.frame(tax_table(ps_16S_no_neg_min4000.merged2.perc.subset.class),stringsAsFactors=FALSE)
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df <- setDT(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df, keep.rownames = TRUE)[]
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.fin <- merge(ps_16S_no_neg_min4000.merged2.perc.subset.class.df.1, ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df, by="rn")
+taxa.order <- c("Bacteroidia", "Campylobacteria", "Acidimicrobiia",
+                "Alphaproteobacteria", "Planctomycetacia", "Anaerolineae", 
+                "Gammaproteobacteria", "Clostridia", "Deltaproteobacteria", "Fusobacteria")
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final <- ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.fin %>%
+  slice(match(taxa.order, Class))
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final <- ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final %>%
+  dplyr::select(-rn, -Kingdom, -Phylum, -Order, -Family, -Genus, -Species)
+
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final <- ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final %>%
+                                          add_row(FAV2.50 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$FAV2.50), 
+                                                  FAV2.CTL = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$FAV2.CTL), 
+                                                  FAV2.Pen = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$FAV2.Pen), 
+                                                  FAV5.150 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$FAV5.150), 
+                                                  FAV5.50 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$FAV5.50), 
+                                                  FAV5.CTL = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$FAV5.CTL), 
+                                                  FAV5.Pen = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$FAV5.Pen), 
+                                                  Q1.150 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$Q1.150), 
+                                                  Q1.50 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$Q1.50), 
+                                                  Q1.CTL = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$Q1.CTL), 
+                                                  Q1.Pen = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$Q1.Pen), 
+                                                  Q2.150 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$Q2.150), 
+                                                  Q2.50 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$Q2.50), 
+                                                  Q2.CTL = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$Q2.CTL), 
+                                                  Q2.Pen = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$Q2.Pen), 
+                                                  QIA2gs.150 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$QIA2gs.150), 
+                                                  QIA2gs.50 = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$QIA2gs.50), 
+                                                  QIA2gs.CTL = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$QIA2gs.CTL), 
+                                                  QIA2gs.Pen = 100-sum(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final$QIA2gs.Pen), 
+                                                  Class= "Other")
+
+
+taxa.order1 <- c("Bacteroidia", "Campylobacteria", "Acidimicrobiia",
+                 "Alphaproteobacteria", "Planctomycetacia", "Anaerolineae", 
+                 "Gammaproteobacteria", "Clostridia", "Deltaproteobacteria", "Fusobacteria", "Other")
+
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final1 <- ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final %>%
+  dplyr::arrange(match(taxa.order1, Class))
+
+
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt <- melt(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final, id.vars = "Class")
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$value <- as.numeric(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$value)
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$Kit2 <- ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.150", 'FAV2',
+                                                                                 ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.50", 'FAV2',
+                                                                                        ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.CTL", 'FAV2', 
+                                                                                               ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV2.Pen", 'FAV2',
+                                                                                                      ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV5.150", 'FAV5',
+                                                                                                             ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV5.50", 'FAV5',
+                                                                                                                    ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV5.CTL", 'FAV5', 
+                                                                                                                           ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV5.Pen", 'FAV5',
+                                                                                                                                  ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q1.150", 'Q.PS',
+                                                                                                                                         ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q1.50", 'Q.PS',
+                                                                                                                                                ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q1.CTL", 'Q.PS', 
+                                                                                                                                                       ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q1.Pen", 'Q.PS',
+                                                                                                                                                              ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q2.150", 'Q.PS.Pro',
+                                                                                                                                                                     ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q2.50", 'Q.PS.Pro',
+                                                                                                                                                                            ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q2.CTL", 'Q.PS.Pro', 
+                                                                                                                                                                                   ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q2.Pen", 'Q.PS.Pro',
+                                                                                                                                                                                          ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="QIA2gs.150", 'QIA2',
+                                                                                                                                                                                                 ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "QIA2gs.50", 'QIA2',
+                                                                                                                                                                                                        ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "QIA2gs.CTL", 'QIA2', 
+                                                                                                                                                                                                               ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="QIA2gs.Pen", 'QIA2',"No"))))))))))))))))))))
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$Distance <- ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.150", '150m',
+                                                                                     ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.50", '50m',
+                                                                                            ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.CTL", 'CTL', 
+                                                                                                   ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV2.Pen", 'Pen',
+                                                                                                          ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV5.150", '150m',
+                                                                                                                 ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV5.50", '50m',
+                                                                                                                        ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV5.CTL", 'CTL', 
+                                                                                                                               ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV5.Pen", 'Pen',
+                                                                                                                                      ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q1.150", '150m',
+                                                                                                                                             ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q1.50", '50m',
+                                                                                                                                                    ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q1.CTL", 'CTL', 
+                                                                                                                                                           ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q1.Pen", 'Pen',
+                                                                                                                                                                  ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q2.150", '150m',
+                                                                                                                                                                         ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q2.50", '50m',
+                                                                                                                                                                                ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q2.CTL", 'CTL', 
+                                                                                                                                                                                       ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q2.Pen", 'Pen',
+                                                                                                                                                                                              ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="QIA2gs.150", '150m',
+                                                                                                                                                                                                     ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "QIA2gs.50", '50m',
+                                                                                                                                                                                                            ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable == "QIA2gs.CTL", 'CTL', 
+                                                                                                                                                                                                                   ifelse(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$variable =="QIA2gs.Pen", 'Pen',"No"))))))))))))))))))))
+
+good_palette<-c("#d33f8c",
+                "#60bd4b",
+                "#c04abe",
+                "#a4ba35",
+                "#6f5bd0",
+                "#dc9b30",
+                "#4f81e1",
+                "#bca744",
+                "#408431",
+                "#db7ecc",
+                "#42c684",
+                "#d43b56",
+                "#3abec8",
+                "#d74a2c",
+                "#788a2a",
+                "#924b97",
+                "#76b572",
+                "#e177a0",
+                "#58bea1",
+                "#a24356",
+                "#327e58",
+                "#d36a59",
+                "#9797da",
+                "#626c2c",
+                "#c48dc5",
+                "#a7b06b",
+                "#934d76",
+                "#288292", 
+                "#78C0C3", 
+                "#BDDDDF")
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$Class <- factor(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$Class, 
+                                                                                  levels = c("Other" ,"Bacteroidia", "Campylobacteria", "Acidimicrobiia",
+                                                                                             "Alphaproteobacteria", "Planctomycetacia", "Anaerolineae", 
+                                                                                             "Gammaproteobacteria", "Clostridia", "Deltaproteobacteria", "Fusobacteria"))
+
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$Distance <- factor(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$Distance, 
+                                                                                     levels = c("Pen" ,"50m", "150m", "CTL"))
+
+ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$Kit2 <- factor(ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt$Kit2, 
+                                                                                     levels = c("Q.PS", "Q.PS.Pro", "QIA2", "FAV2", "FAV5"))
+
+
+compositionplot.16S <- ggplot() + 
+  theme_bw() + 
+  geom_bar(data=ps_16S_no_neg_min4000.merged2.perc.subset.class.tax.df.final.melt, aes(x=Kit2, y=value, fill=Class), stat="identity") + 
+  facet_grid(.~Distance, scales = "free") +
+  scale_fill_manual(name = "Taxonomy", values = good_palette) + 
+  ylab("% of reads") + 
+  xlab("") + 
+  theme(legend.title=element_text(size=12, color="black")) + 
+  theme(legend.text=element_text(size=12, color="black")) + 
+  theme(plot.title=element_text(size=14, color="black")) + 
+  theme(panel.background = element_rect(fill="transparent"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill="transparent", colour=NA),
+        legend.background = element_rect(fill="transparent"),
+        legend.key = element_rect(fill = NA)) +
+  ggtitle("A")
+
+
+
+
+sample_data(ps_18S_no_neg_min10000)$Distance <- as.factor(sample_data(ps_18S_no_neg_min10000)$Distance)
+sample_data(ps_18S_no_neg_min10000)$Kit2 <- as.factor(sample_data(ps_18S_no_neg_min10000)$Kit2)
+
+ps_18S_no_neg_min10000.merged2 <- merge_samples(ps_18S_no_neg_min10000, "Combined", fun=mean)
+
+ps_18S_no_neg_min10000.merged2.perc = transform_sample_counts(ps_18S_no_neg_min10000.merged2, function(OTU) OTU/sum(OTU)*100)
+
+
+ps_18S_no_neg_min10000.merged2.perc.subset <- subset_taxa(ps_18S_no_neg_min10000.merged2.perc, (Class %in% c("Conoidasida", "Chromadorea", "Novel Apicomplexa Class 1",
+                                                                                                             "Copepoda", "Cercozoa", "Scolecida", 
+                                                                                                             "Syndiniales", "Enoplea", "Gonyaulacales", "Trebouxiophyceae")))
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class = tax_glom(ps_18S_no_neg_min10000.merged2.perc.subset, "Class")
+
+
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.df <- as.data.frame(t(otu_table(ps_18S_no_neg_min10000.merged2.perc.subset.class)))
+ps_18S_no_neg_min10000.merged2.perc.subset.class.df.1 <- setDT(ps_18S_no_neg_min10000.merged2.perc.subset.class.df, keep.rownames = TRUE)[]
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df <- as.data.frame(tax_table(ps_18S_no_neg_min10000.merged2.perc.subset.class),stringsAsFactors=FALSE)
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df <- setDT(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df, keep.rownames = TRUE)[]
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.fin <- merge(ps_18S_no_neg_min10000.merged2.perc.subset.class.df.1, ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df, by="rn")
+taxa.order <- c("Conoidasida", "Chromadorea", "Novel Apicomplexa Class 1",
+                "Copepoda", "Cercozoa", "Scolecida", 
+                "Syndiniales", "Enoplea", "Gonyaulacales", "Trebouxiophyceae")
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final <- ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.fin %>%
+  slice(match(taxa.order, Class))
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final <- ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final %>%
+  dplyr::select(-rn, -Kingdom, -Phylum, -Order, -Family, -Genus, -Species)
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final <- ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final %>%
+  add_row(FAV2.150 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$FAV2.150),
+          FAV2.50 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$FAV2.50), 
+          FAV2.CTL = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$FAV2.CTL), 
+          FAV2.Pen = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$FAV2.Pen), 
+          FAV5.150 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$FAV5.150), 
+          FAV5.50 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$FAV5.50), 
+          FAV5.CTL = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$FAV5.CTL), 
+          FAV5.Pen = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$FAV5.Pen), 
+          Q1.150 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$Q1.150), 
+          Q1.50 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$Q1.50), 
+          Q1.CTL = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$Q1.CTL), 
+          Q1.Pen = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$Q1.Pen), 
+          Q2.150 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$Q2.150), 
+          Q2.50 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$Q2.50), 
+          Q2.CTL = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$Q2.CTL), 
+          Q2.Pen = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$Q2.Pen), 
+          QIA2gs.150 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$QIA2gs.150), 
+          QIA2gs.50 = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$QIA2gs.50), 
+          QIA2gs.CTL = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$QIA2gs.CTL), 
+          QIA2gs.Pen = 100-sum(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final$QIA2gs.Pen), 
+          Class= "Other")
+
+
+taxa.order1 <- c("Conoidasida", "Chromadorea", "Novel Apicomplexa Class 1",
+                 "Copepoda", "Cercozoa", "Scolecida", 
+                 "Syndiniales", "Enoplea", "Gonyaulacales", "Trebouxiophyceae", "Other")
+
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final <- ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final %>%
+  arrange(match(taxa.order1, Class))
+
+
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt <- melt(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final, id.vars = "Class")
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$value <- as.numeric(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$value)
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$Kit2 <- ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.150", 'FAV2',
+                                                                                  ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.50", 'FAV2',
+                                                                                         ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.CTL", 'FAV2', 
+                                                                                                ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV2.Pen", 'FAV2',
+                                                                                                       ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV5.150", 'FAV5',
+                                                                                                              ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV5.50", 'FAV5',
+                                                                                                                     ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV5.CTL", 'FAV5', 
+                                                                                                                            ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV5.Pen", 'FAV5',
+                                                                                                                                   ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q1.150", 'Q.PS',
+                                                                                                                                          ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q1.50", 'Q.PS',
+                                                                                                                                                 ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q1.CTL", 'Q.PS', 
+                                                                                                                                                        ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q1.Pen", 'Q.PS',
+                                                                                                                                                               ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q2.150", 'Q.PS.Pro',
+                                                                                                                                                                      ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q2.50", 'Q.PS.Pro',
+                                                                                                                                                                             ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q2.CTL", 'Q.PS.Pro', 
+                                                                                                                                                                                    ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q2.Pen", 'Q.PS.Pro',
+                                                                                                                                                                                           ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="QIA2gs.150", 'QIA2',
+                                                                                                                                                                                                  ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "QIA2gs.50", 'QIA2',
+                                                                                                                                                                                                         ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "QIA2gs.CTL", 'QIA2', 
+                                                                                                                                                                                                                ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="QIA2gs.Pen", 'QIA2',"No"))))))))))))))))))))
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$Distance <- ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.150", '150m',
+                                                                                      ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.50", '50m',
+                                                                                             ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV2.CTL", 'CTL', 
+                                                                                                    ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV2.Pen", 'Pen',
+                                                                                                           ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV5.150", '150m',
+                                                                                                                  ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV5.50", '50m',
+                                                                                                                         ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "FAV5.CTL", 'CTL', 
+                                                                                                                                ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="FAV5.Pen", 'Pen',
+                                                                                                                                       ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q1.150", '150m',
+                                                                                                                                              ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q1.50", '50m',
+                                                                                                                                                     ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q1.CTL", 'CTL', 
+                                                                                                                                                            ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q1.Pen", 'Pen',
+                                                                                                                                                                   ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q2.150", '150m',
+                                                                                                                                                                          ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q2.50", '50m',
+                                                                                                                                                                                 ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "Q2.CTL", 'CTL', 
+                                                                                                                                                                                        ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="Q2.Pen", 'Pen',
+                                                                                                                                                                                               ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="QIA2gs.150", '150m',
+                                                                                                                                                                                                      ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "QIA2gs.50", '50m',
+                                                                                                                                                                                                             ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable == "QIA2gs.CTL", 'CTL', 
+                                                                                                                                                                                                                    ifelse(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$variable =="QIA2gs.Pen", 'Pen',"No"))))))))))))))))))))
+
+good_palette<-c("#d33f8c",
+                "#60bd4b",
+                "#c04abe",
+                "#a4ba35",
+                "#6f5bd0",
+                "#dc9b30",
+                "#4f81e1",
+                "#bca744",
+                "#408431",
+                "#db7ecc",
+                "#42c684",
+                "#d43b56",
+                "#3abec8",
+                "#d74a2c",
+                "#788a2a",
+                "#924b97",
+                "#76b572",
+                "#e177a0",
+                "#58bea1",
+                "#a24356",
+                "#327e58",
+                "#d36a59",
+                "#9797da",
+                "#626c2c",
+                "#c48dc5",
+                "#a7b06b",
+                "#934d76",
+                "#288292", 
+                "#78C0C3", 
+                "#BDDDDF")
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$Class <- factor(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$Class, levels = c("Other" ,"Conoidasida", "Chromadorea", "Novel Apicomplexa Class 1",
+                                                                                                                                                                        "Copepoda", "Cercozoa", "Scolecida", 
+                                                                                                                                                                        "Syndiniales", "Enoplea", "Gonyaulacales", "Trebouxiophyceae"))
+
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$Distance <- factor(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$Distance, 
+                                                                                      levels = c("Pen" ,"50m", "150m", "CTL"))
+
+ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$Kit2 <- factor(ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt$Kit2, 
+                                                                                 levels = c("Q.PS", "Q.PS.Pro", "QIA2", "FAV2", "FAV5"))
+
+
+compositionplot.18S <- ggplot() + 
+  theme_bw() + 
+  geom_bar(data=ps_18S_no_neg_min10000.merged2.perc.subset.class.tax.df.final.melt, aes(x=Kit2, y=value, fill=Class), stat="identity") + 
+  facet_grid(.~Distance, scales = "free") +
+  scale_fill_manual(name = "Taxonomy", values = good_palette) + 
+  ylab("% of reads") + 
+  xlab("") + 
+  theme(legend.title=element_text(size=12, color="black")) + 
+  theme(legend.text=element_text(size=12, color="black")) + 
+  theme(plot.title=element_text(size=14, color="black")) + 
+  theme(panel.background = element_rect(fill="transparent"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill="transparent", colour=NA),
+        legend.background = element_rect(fill="transparent"),
+        legend.key = element_rect(fill = NA)) +
+  ggtitle("B")
+
+
+
+postscript(file="Composition_distance.eps", width=15, height=7.5, colormodel="cmyk", family="serif", horizontal=FALSE, onefile=FALSE, paper="special")
+grid.newpage()
+pushViewport(viewport(layout=grid.layout(2,1, heights=c(5,5), width=c(5, 6))))
+print(compositionplot.16S, vp=viewport(layout.pos.row=1, layout.pos.col=1))
+print(compositionplot.18S, vp=viewport(layout.pos.row=2, layout.pos.col=1))
+dev.off()
+```
+
+
+Shared ASVs
+
+```{r}
+
+Merged.16S.merged = merge_samples(ps_16S_no_neg_min4000, "Kit")
+
+sample_data(Merged.16S.merged)$Kit[sample_names(Merged.16S.merged) == "FAV2"] <- "FAV2"
+sample_data(Merged.16S.merged)$Kit[sample_names(Merged.16S.merged) == "FAV5"] <- "FAV5"
+sample_data(Merged.16S.merged)$Kit[sample_names(Merged.16S.merged) == "Q1"] <- "Q1"
+sample_data(Merged.16S.merged)$Kit[sample_names(Merged.16S.merged) == "Q2"] <- "Q2"
+sample_data(Merged.16S.merged)$Kit[sample_names(Merged.16S.merged) == "QIA2gs"] <- "QIA2gs"
+
+
+FAV2.FAV5 = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "FAV5")
+FAV2.Q1 = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "Q1")
+FAV2.Q2 = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "Q2")
+FAV2.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "QIA2gs")
+FAV5.Q1 = subset_samples(Merged.16S.merged, Kit == "FAV5" | Kit == "Q1")
+FAV5.Q2 = subset_samples(Merged.16S.merged, Kit == "FAV5" | Kit == "Q2")
+FAV5.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV5" | Kit == "QIA2gs")
+Q1.Q2 = subset_samples(Merged.16S.merged, Kit == "Q1" | Kit == "Q2")
+Q1.QIA2gs = subset_samples(Merged.16S.merged, Kit == "Q1" | Kit == "QIA2gs")
+Q2.QIA2gs = subset_samples(Merged.16S.merged, Kit == "Q2" | Kit == "QIA2gs")
+
+
+FAV2.FAV5.Q1 = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q1")
+FAV2.FAV5.Q2 = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q2")
+FAV2.FAV5.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "QIA2gs")
+FAV2.Q1.Q2 = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "Q1" | Kit == "Q2")
+FAV2.Q1.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "Q1" | Kit == "QIA2gs")
+FAV2.Q2.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "Q2" | Kit == "QIA2gs")
+
+FAV5.Q1.Q2 = subset_samples(Merged.16S.merged, Kit == "FAV5" | Kit == "Q1" | Kit == "Q2")
+FAV5.Q1.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV5" | Kit == "Q1"| Kit == "QIA2gs")
+FAV5.Q2.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV5" | Kit == "Q2"| Kit == "QIA2gs")
+
+Q1.Q2.QIA2gs = subset_samples(Merged.16S.merged, Kit == "Q1" | Kit == "Q2" | Kit == "QIA2gs")
+
+FAV2.FAV5.Q1.Q2 = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q1" | Kit == "Q2")
+FAV2.FAV5.Q1.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q1" | Kit == "QIA2gs")
+FAV2.FAV5.Q2.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q2" | Kit == "QIA2gs")
+FAV2.Q1.Q2.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV2" | Kit == "Q1" | Kit == "Q2" | Kit == "QIA2gs")
+
+FAV5.Q1.Q2.QIA2gs = subset_samples(Merged.16S.merged, Kit == "FAV5" | Kit == "Q1" | Kit == "Q2" | Kit == "QIA2gs")
+
+shared.FAV2.FAV5 = filter_taxa(FAV2.FAV5, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV2.Q1 = filter_taxa(FAV2.Q1, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV2.Q2 = filter_taxa(FAV2.Q2, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV2.QIA2gs = filter_taxa(FAV2.QIA2gs, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV5.Q1 = filter_taxa(FAV5.Q1, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV5.Q2 = filter_taxa(FAV5.Q2, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV5.QIA2gs = filter_taxa(FAV5.QIA2gs, function(x) sum(x >= 1) == (2), TRUE)
+shared.Q1.Q2 = filter_taxa(Q1.Q2, function(x) sum(x >= 1) == (2), TRUE)
+shared.Q1.QIA2gs = filter_taxa(Q1.QIA2gs, function(x) sum(x >= 1) == (2), TRUE)
+shared.Q2.QIA2gs = filter_taxa(Q2.QIA2gs, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV2.FAV5.Q1 = filter_taxa(FAV2.FAV5.Q1, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.FAV5.Q2 = filter_taxa(FAV2.FAV5.Q2, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.FAV5.QIA2gs = filter_taxa(FAV2.FAV5.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.Q1.Q2 = filter_taxa(FAV2.Q1.Q2, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.Q1.QIA2gs = filter_taxa(FAV2.Q1.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.Q2.QIA2gs = filter_taxa(FAV2.Q2.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV5.Q1.Q2 = filter_taxa(FAV5.Q1.Q2, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV5.Q1.QIA2gs = filter_taxa(FAV5.Q1.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV5.Q2.QIA2gs = filter_taxa(FAV5.Q2.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.Q1.Q2.QIA2gs = filter_taxa(Q1.Q2.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.FAV5.Q1.Q2 = filter_taxa(FAV2.FAV5.Q1.Q2, function(x) sum(x >= 1) == (4), TRUE)
+shared.FAV2.FAV5.Q1.QIA2gs = filter_taxa(FAV2.FAV5.Q1.QIA2gs, function(x) sum(x >= 1) == (4), TRUE)
+shared.FAV2.FAV5.Q2.QIA2gs = filter_taxa(FAV2.FAV5.Q2.QIA2gs, function(x) sum(x >= 1) == (4), TRUE)
+shared.FAV2.Q1.Q2.QIA2gs = filter_taxa(FAV2.Q1.Q2.QIA2gs, function(x) sum(x >= 1) == (4), TRUE)
+shared.FAV5.Q1.Q2.QIA2gs = filter_taxa(FAV5.Q1.Q2.QIA2gs, function(x) sum(x >= 1) == (4), TRUE)
+shared.all = filter_taxa(Merged.16S.merged, function(x) sum(x >= 1) == (5), TRUE)
+
+
+
+sample_data(shared.FAV2.FAV5)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q1)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q1)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.Q1.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.Q1.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q1)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q1.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q1.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q1.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q1.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.Q1.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q1.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q1.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q1.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q1.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.all)$Sample_type <- "FishFarm"
+
+
+
+shared.FAV2.FAV5.merged <- merge_samples(shared.FAV2.FAV5, "Sample_type", fun=mean)
+shared.FAV2.Q1.merged <- merge_samples(shared.FAV2.Q1, "Sample_type", fun=mean)
+shared.FAV2.Q2.merged <- merge_samples(shared.FAV2.Q2, "Sample_type", fun=mean)
+shared.FAV2.QIA2gs.merged <- merge_samples(shared.FAV2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV5.Q1.merged <- merge_samples(shared.FAV5.Q1, "Sample_type", fun=mean)
+shared.FAV5.Q2.merged <- merge_samples(shared.FAV5.Q2, "Sample_type", fun=mean)
+shared.FAV5.QIA2gs.merged <- merge_samples(shared.FAV5.QIA2gs, "Sample_type", fun=mean)
+shared.Q1.Q2.merged <- merge_samples(shared.Q1.Q2, "Sample_type", fun=mean)
+shared.Q1.QIA2gs.merged <- merge_samples(shared.Q1.QIA2gs, "Sample_type", fun=mean)
+shared.Q2.QIA2gs.merged <- merge_samples(shared.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q1.merged <- merge_samples(shared.FAV2.FAV5.Q1, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q2.merged <- merge_samples(shared.FAV2.FAV5.Q2, "Sample_type", fun=mean)
+shared.FAV2.FAV5.QIA2gs.merged <- merge_samples(shared.FAV2.FAV5.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.Q1.Q2.merged <- merge_samples(shared.FAV2.Q1.Q2, "Sample_type", fun=mean)
+shared.FAV2.Q1.QIA2gs.merged <- merge_samples(shared.FAV2.Q1.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.Q2.QIA2gs.merged <- merge_samples(shared.FAV2.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV5.Q1.Q2.merged <- merge_samples(shared.FAV5.Q1.Q2, "Sample_type", fun=mean)
+shared.FAV5.Q1.QIA2gs.merged <- merge_samples(shared.FAV5.Q1.QIA2gs, "Sample_type", fun=mean)
+shared.FAV5.Q2.QIA2gs.merged <- merge_samples(shared.FAV5.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.Q1.Q2.QIA2gs.merged <- merge_samples(shared.Q1.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q1.Q2.merged <- merge_samples(shared.FAV2.FAV5.Q1.Q2, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q1.QIA2gs.merged <- merge_samples(shared.FAV2.FAV5.Q1.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q2.QIA2gs.merged <- merge_samples(shared.FAV2.FAV5.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.Q1.Q2.QIA2gs.merged <- merge_samples(shared.FAV2.Q1.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV5.Q1.Q2.QIA2gs.merged <- merge_samples(shared.FAV5.Q1.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.all.merged <- merge_samples(shared.all, "Sample_type", fun=mean)
+
+
+count.sep <- estimate_richness(Merged.16S.merged, measures="Observed")
+count.FAV2.FAV5 <- estimate_richness(shared.FAV2.FAV5.merged, measures="Observed")
+count.FAV2.Q1 <- estimate_richness(shared.FAV2.Q1.merged, measures="Observed")
+count.FAV2.Q2 <- estimate_richness(shared.FAV2.Q2.merged, measures="Observed")
+count.FAV2.QIA2gs <- estimate_richness(shared.FAV2.QIA2gs.merged, measures="Observed")
+count.FAV5.Q1 <- estimate_richness(shared.FAV5.Q1.merged, measures="Observed")
+count.FAV5.Q2 <- estimate_richness(shared.FAV5.Q2.merged, measures="Observed")
+count.FAV5.QIA2gs <- estimate_richness(shared.FAV5.QIA2gs.merged, measures="Observed")
+count.Q1.Q2 <- estimate_richness(shared.Q1.Q2.merged, measures="Observed")
+count.Q1.QIA2gs <- estimate_richness(shared.Q1.QIA2gs.merged, measures="Observed")
+count.Q2.QIA2gs <- estimate_richness(shared.Q2.QIA2gs.merged, measures="Observed")
+count.FAV2.FAV5.Q1 <- estimate_richness(shared.FAV2.FAV5.Q1.merged, measures="Observed")
+count.FAV2.FAV5.Q2 <- estimate_richness(shared.FAV2.FAV5.Q2.merged, measures="Observed")
+count.FAV2.FAV5.QIA2gs <- estimate_richness(shared.FAV2.FAV5.QIA2gs.merged, measures="Observed")
+count.FAV2.Q1.Q2 <- estimate_richness(shared.FAV2.Q1.Q2.merged, measures="Observed")
+count.FAV2.Q1.QIA2gs <- estimate_richness(shared.FAV2.Q1.QIA2gs.merged, measures="Observed")
+count.FAV2.Q2.QIA2gs <- estimate_richness(shared.FAV2.Q2.QIA2gs.merged, measures="Observed")
+count.FAV5.Q1.Q2 <- estimate_richness(shared.FAV5.Q1.Q2.merged, measures="Observed")
+count.FAV5.Q1.QIA2gs <- estimate_richness(shared.FAV5.Q1.QIA2gs.merged, measures="Observed")
+count.FAV5.Q2.QIA2gs <- estimate_richness(shared.FAV5.Q2.QIA2gs.merged, measures="Observed")
+count.Q1.Q2.QIA2gs <- estimate_richness(shared.Q1.Q2.QIA2gs.merged, measures="Observed")
+count.FAV2.FAV5.Q1.Q2 <- estimate_richness(shared.FAV2.FAV5.Q1.Q2.merged, measures="Observed")
+count.FAV2.FAV5.Q1.QIA2gs <- estimate_richness(shared.FAV2.FAV5.Q1.QIA2gs.merged, measures="Observed")
+count.FAV2.FAV5.Q2.QIA2gs <- estimate_richness(shared.FAV2.FAV5.Q2.QIA2gs.merged, measures="Observed")
+count.FAV2.Q1.Q2.QIA2gs <- estimate_richness(shared.FAV2.Q1.Q2.QIA2gs.merged, measures="Observed")
+count.FAV5.Q1.Q2.QIA2gs <- estimate_richness(shared.FAV5.Q1.Q2.QIA2gs.merged, measures="Observed")
+count.all <- estimate_richness(shared.all.merged, measures="Observed")
+
+
+
+count.sep <- t(count.sep)
+count.FAV2.FAV5 <- t(count.FAV2.FAV5)
+count.FAV2.Q1 <- t(count.FAV2.Q1)
+count.FAV2.Q2 <- t(count.FAV2.Q2)
+count.FAV2.QIA2gs <- t(count.FAV2.QIA2gs)
+count.FAV5.Q1 <- t(count.FAV5.Q1)
+count.FAV5.Q2 <- t(count.FAV5.Q2)
+count.FAV5.QIA2gs <- t(count.FAV5.QIA2gs)
+count.Q1.Q2 <- t(count.Q1.Q2)
+count.Q1.QIA2gs <- t(count.Q1.QIA2gs)
+count.Q2.QIA2gs <- t(count.Q2.QIA2gs)
+count.FAV2.FAV5.Q1 <- t(count.FAV2.FAV5.Q1)
+count.FAV2.FAV5.Q2 <- t(count.FAV2.FAV5.Q2)
+count.FAV2.FAV5.QIA2gs <- t(count.FAV2.FAV5.QIA2gs)
+count.FAV2.Q1.Q2 <- t(count.FAV2.Q1.Q2)
+count.FAV2.Q1.QIA2gs <- t(count.FAV2.Q1.QIA2gs)
+count.FAV2.Q2.QIA2gs <- t(count.FAV2.Q2.QIA2gs)
+count.FAV5.Q1.Q2 <- t(count.FAV5.Q1.Q2)
+count.FAV5.Q1.QIA2gs <- t(count.FAV5.Q1.QIA2gs)
+count.FAV5.Q2.QIA2gs <- t(count.FAV5.Q2.QIA2gs)
+count.Q1.Q2.QIA2gs <- t(count.Q1.Q2.QIA2gs)
+count.FAV2.FAV5.Q1.Q2 <- t(count.FAV2.FAV5.Q1.Q2)
+count.FAV2.FAV5.Q1.QIA2gs <- t(count.FAV2.FAV5.Q1.QIA2gs)
+count.FAV2.FAV5.Q2.QIA2gs <- t(count.FAV2.FAV5.Q2.QIA2gs)
+count.FAV2.Q1.Q2.QIA2gs <- t(count.FAV2.Q1.Q2.QIA2gs)
+count.FAV5.Q1.Q2.QIA2gs <- t(count.FAV5.Q1.Q2.QIA2gs)
+count.all <- t(count.all)
+
+
+
+
+colnames(count.FAV2.FAV5) <- "FAV2.FAV5"
+colnames(count.FAV2.Q1) <- "FAV2.Q1"
+colnames(count.FAV2.Q2) <- "FAV2.Q2"
+colnames(count.FAV2.QIA2gs) <- "FAV2.QIA2gs"
+colnames(count.FAV5.Q1) <- "FAV5.Q1"
+colnames(count.FAV5.Q2) <- "FAV5.Q2"
+colnames(count.FAV5.QIA2gs) <- "FAV5.QIA2gs"
+colnames(count.Q1.Q2) <- "Q1.Q2"
+colnames(count.Q1.QIA2gs) <- "Q1.QIA2gs"
+colnames(count.Q2.QIA2gs) <- "Q2.QIA2gs"
+colnames(count.FAV2.FAV5.Q1) <- "FAV2.FAV5.Q1"
+colnames(count.FAV2.FAV5.Q2) <- "FAV2.FAV5.Q2"
+colnames(count.FAV2.FAV5.QIA2gs) <- "FAV2.FAV5.QIA2gs"
+colnames(count.FAV2.Q1.Q2) <- "FAV2.Q1.Q2"
+colnames(count.FAV2.Q1.QIA2gs) <- "FAV2.Q1.QIA2gs"
+colnames(count.FAV2.Q2.QIA2gs) <- "FAV2.Q2.QIA2gs"
+colnames(count.FAV5.Q1.Q2) <- "FAV5.Q1.Q2"
+colnames(count.FAV5.Q1.QIA2gs) <- "FAV5.Q1.QIA2gs"
+colnames(count.FAV5.Q2.QIA2gs) <- "FAV5.Q2.QIA2gs"
+colnames(count.Q1.Q2.QIA2gs) <- "Q1.Q2.QIA2gs"
+colnames(count.FAV2.FAV5.Q1.Q2) <- "FAV2.FAV5.Q1.Q2"
+colnames(count.FAV2.FAV5.Q1.QIA2gs) <- "FAV2.FAV5.Q1.QIA2gs"
+colnames(count.FAV2.FAV5.Q2.QIA2gs) <- "FAV2.FAV5.Q2.QIA2gs"
+colnames(count.FAV2.Q1.Q2.QIA2gs) <- "FAV2.Q1.Q2.QIA2gs"
+colnames(count.FAV5.Q1.Q2.QIA2gs) <- "FAV5.Q1.Q2.QIA2gs"
+colnames(count.all) <- "All"
+
+
+
+
+
+shared.otus <- as.data.frame(cbind(count.sep, count.FAV2.FAV5, count.FAV2.Q1, count.FAV2.Q2, count.FAV2.QIA2gs, count.FAV5.Q1,
+                                   count.FAV5.Q2, count.FAV5.QIA2gs, count.Q1.Q2, count.Q1.QIA2gs, count.Q2.QIA2gs,
+                                   count.FAV2.FAV5.Q1, count.FAV2.FAV5.Q2, count.FAV2.FAV5.QIA2gs, count.FAV2.Q1.Q2, count.FAV2.Q1.QIA2gs,
+                                   count.FAV2.Q2.QIA2gs, count.FAV5.Q1.Q2, count.FAV5.Q1.QIA2gs, count.FAV5.Q2.QIA2gs, count.Q1.Q2.QIA2gs,
+                                   count.FAV2.FAV5.Q1.Q2, count.FAV2.FAV5.Q1.QIA2gs, count.FAV2.FAV5.Q2.QIA2gs, count.FAV2.Q1.Q2.QIA2gs,
+                                   count.FAV5.Q1.Q2.QIA2gs, count.all))
+
+
+
+
+vennplot.bacteria.Merged.16S<- draw.quintuple.venn(area1=shared.otus$FAV2, area2=shared.otus$FAV5, area3=shared.otus$Q1, area4=shared.otus$Q2, area5=shared.otus$QIA2gs,
+                                                   n12=shared.otus$FAV2.FAV5, n13=shared.otus$FAV2.Q1, n14=shared.otus$FAV2.Q2, n15=shared.otus$FAV2.QIA2gs,
+                                                   n23=shared.otus$FAV5.Q1, n24=shared.otus$FAV5.Q2, n25=shared.otus$FAV5.QIA2gs,
+                                                   n34=shared.otus$Q1.Q2, n35=shared.otus$Q1.QIA2gs, n45=shared.otus$Q2.QIA2gs,
+                                                   n123=shared.otus$FAV2.FAV5.Q1, n124=shared.otus$FAV2.FAV5.Q2, n125=shared.otus$FAV2.FAV5.QIA2gs,
+                                                   n134=shared.otus$FAV2.Q1.Q2, n135=shared.otus$FAV2.Q1.QIA2gs, n145=shared.otus$FAV2.Q2.QIA2gs,
+                                                   n234=shared.otus$FAV5.Q1.Q2, n235=shared.otus$FAV5.Q1.QIA2gs,  n245=shared.otus$FAV5.Q2.QIA2gs, n345=shared.otus$Q1.Q2.QIA2gs,
+                                                   n1234=shared.otus$FAV2.FAV5.Q1.Q2, n1235=shared.otus$FAV2.FAV5.Q1.QIA2gs, n1245=shared.otus$FAV2.FAV5.Q2.QIA2gs, 
+                                                   n1345=shared.otus$FAV2.Q1.Q2.QIA2gs, n2345=shared.otus$FAV5.Q1.Q2.QIA2gs,
+                                                   n12345=shared.otus$All,
+                                                   category = c("Fav2", "Fav5", "Q.PS", "Q.PS.Pro", "QIA2"), 
+                                                   fill = c("deepskyblue", "deepskyblue4", "coral", "darkorange3", "firebrick4"), 
+                                                   lty = "blank",  cex = 1, cat.cex = 1.5, cat.dist = 0.1, alpha=c(0.5,0.5,0.5, 0.5, 0.5))
+
+
+cairo_ps(file="Vennplot.Merged.eps", width=12, height=9)
+grid.draw(vennplot.bacteria.Merged.16S)
+dev.off()
+
+
+
+Merged.18S.merged = merge_samples(ps_18S_no_neg_min10000, "Kit")
+
+sample_data(Merged.18S.merged)$Kit[sample_names(Merged.18S.merged) == "FAV2"] <- "FAV2"
+sample_data(Merged.18S.merged)$Kit[sample_names(Merged.18S.merged) == "FAV5"] <- "FAV5"
+sample_data(Merged.18S.merged)$Kit[sample_names(Merged.18S.merged) == "Q1"] <- "Q1"
+sample_data(Merged.18S.merged)$Kit[sample_names(Merged.18S.merged) == "Q2"] <- "Q2"
+sample_data(Merged.18S.merged)$Kit[sample_names(Merged.18S.merged) == "QIA2gs"] <- "QIA2gs"
+
+
+FAV2.FAV5 = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "FAV5")
+FAV2.Q1 = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "Q1")
+FAV2.Q2 = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "Q2")
+FAV2.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "QIA2gs")
+FAV5.Q1 = subset_samples(Merged.18S.merged, Kit == "FAV5" | Kit == "Q1")
+FAV5.Q2 = subset_samples(Merged.18S.merged, Kit == "FAV5" | Kit == "Q2")
+FAV5.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV5" | Kit == "QIA2gs")
+Q1.Q2 = subset_samples(Merged.18S.merged, Kit == "Q1" | Kit == "Q2")
+Q1.QIA2gs = subset_samples(Merged.18S.merged, Kit == "Q1" | Kit == "QIA2gs")
+Q2.QIA2gs = subset_samples(Merged.18S.merged, Kit == "Q2" | Kit == "QIA2gs")
+
+
+FAV2.FAV5.Q1 = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q1")
+FAV2.FAV5.Q2 = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q2")
+FAV2.FAV5.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "QIA2gs")
+FAV2.Q1.Q2 = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "Q1" | Kit == "Q2")
+FAV2.Q1.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "Q1" | Kit == "QIA2gs")
+FAV2.Q2.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "Q2" | Kit == "QIA2gs")
+
+FAV5.Q1.Q2 = subset_samples(Merged.18S.merged, Kit == "FAV5" | Kit == "Q1" | Kit == "Q2")
+FAV5.Q1.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV5" | Kit == "Q1"| Kit == "QIA2gs")
+FAV5.Q2.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV5" | Kit == "Q2"| Kit == "QIA2gs")
+
+Q1.Q2.QIA2gs = subset_samples(Merged.18S.merged, Kit == "Q1" | Kit == "Q2" | Kit == "QIA2gs")
+
+FAV2.FAV5.Q1.Q2 = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q1" | Kit == "Q2")
+FAV2.FAV5.Q1.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q1" | Kit == "QIA2gs")
+FAV2.FAV5.Q2.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "FAV5" | Kit == "Q2" | Kit == "QIA2gs")
+FAV2.Q1.Q2.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV2" | Kit == "Q1" | Kit == "Q2" | Kit == "QIA2gs")
+
+FAV5.Q1.Q2.QIA2gs = subset_samples(Merged.18S.merged, Kit == "FAV5" | Kit == "Q1" | Kit == "Q2" | Kit == "QIA2gs")
+
+shared.FAV2.FAV5 = filter_taxa(FAV2.FAV5, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV2.Q1 = filter_taxa(FAV2.Q1, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV2.Q2 = filter_taxa(FAV2.Q2, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV2.QIA2gs = filter_taxa(FAV2.QIA2gs, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV5.Q1 = filter_taxa(FAV5.Q1, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV5.Q2 = filter_taxa(FAV5.Q2, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV5.QIA2gs = filter_taxa(FAV5.QIA2gs, function(x) sum(x >= 1) == (2), TRUE)
+shared.Q1.Q2 = filter_taxa(Q1.Q2, function(x) sum(x >= 1) == (2), TRUE)
+shared.Q1.QIA2gs = filter_taxa(Q1.QIA2gs, function(x) sum(x >= 1) == (2), TRUE)
+shared.Q2.QIA2gs = filter_taxa(Q2.QIA2gs, function(x) sum(x >= 1) == (2), TRUE)
+shared.FAV2.FAV5.Q1 = filter_taxa(FAV2.FAV5.Q1, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.FAV5.Q2 = filter_taxa(FAV2.FAV5.Q2, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.FAV5.QIA2gs = filter_taxa(FAV2.FAV5.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.Q1.Q2 = filter_taxa(FAV2.Q1.Q2, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.Q1.QIA2gs = filter_taxa(FAV2.Q1.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.Q2.QIA2gs = filter_taxa(FAV2.Q2.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV5.Q1.Q2 = filter_taxa(FAV5.Q1.Q2, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV5.Q1.QIA2gs = filter_taxa(FAV5.Q1.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV5.Q2.QIA2gs = filter_taxa(FAV5.Q2.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.Q1.Q2.QIA2gs = filter_taxa(Q1.Q2.QIA2gs, function(x) sum(x >= 1) == (3), TRUE)
+shared.FAV2.FAV5.Q1.Q2 = filter_taxa(FAV2.FAV5.Q1.Q2, function(x) sum(x >= 1) == (4), TRUE)
+shared.FAV2.FAV5.Q1.QIA2gs = filter_taxa(FAV2.FAV5.Q1.QIA2gs, function(x) sum(x >= 1) == (4), TRUE)
+shared.FAV2.FAV5.Q2.QIA2gs = filter_taxa(FAV2.FAV5.Q2.QIA2gs, function(x) sum(x >= 1) == (4), TRUE)
+shared.FAV2.Q1.Q2.QIA2gs = filter_taxa(FAV2.Q1.Q2.QIA2gs, function(x) sum(x >= 1) == (4), TRUE)
+shared.FAV5.Q1.Q2.QIA2gs = filter_taxa(FAV5.Q1.Q2.QIA2gs, function(x) sum(x >= 1) == (4), TRUE)
+shared.all = filter_taxa(Merged.18S.merged, function(x) sum(x >= 1) == (5), TRUE)
+
+
+
+sample_data(shared.FAV2.FAV5)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q1)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q1)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.Q1.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.Q1.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q1)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q1.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q1.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q1.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q1.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.Q1.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q1.Q2)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q1.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.FAV5.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV2.Q1.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.FAV5.Q1.Q2.QIA2gs)$Sample_type <- "FishFarm"
+sample_data(shared.all)$Sample_type <- "FishFarm"
+
+
+
+shared.FAV2.FAV5.merged <- merge_samples(shared.FAV2.FAV5, "Sample_type", fun=mean)
+shared.FAV2.Q1.merged <- merge_samples(shared.FAV2.Q1, "Sample_type", fun=mean)
+shared.FAV2.Q2.merged <- merge_samples(shared.FAV2.Q2, "Sample_type", fun=mean)
+shared.FAV2.QIA2gs.merged <- merge_samples(shared.FAV2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV5.Q1.merged <- merge_samples(shared.FAV5.Q1, "Sample_type", fun=mean)
+shared.FAV5.Q2.merged <- merge_samples(shared.FAV5.Q2, "Sample_type", fun=mean)
+shared.FAV5.QIA2gs.merged <- merge_samples(shared.FAV5.QIA2gs, "Sample_type", fun=mean)
+shared.Q1.Q2.merged <- merge_samples(shared.Q1.Q2, "Sample_type", fun=mean)
+shared.Q1.QIA2gs.merged <- merge_samples(shared.Q1.QIA2gs, "Sample_type", fun=mean)
+shared.Q2.QIA2gs.merged <- merge_samples(shared.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q1.merged <- merge_samples(shared.FAV2.FAV5.Q1, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q2.merged <- merge_samples(shared.FAV2.FAV5.Q2, "Sample_type", fun=mean)
+shared.FAV2.FAV5.QIA2gs.merged <- merge_samples(shared.FAV2.FAV5.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.Q1.Q2.merged <- merge_samples(shared.FAV2.Q1.Q2, "Sample_type", fun=mean)
+shared.FAV2.Q1.QIA2gs.merged <- merge_samples(shared.FAV2.Q1.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.Q2.QIA2gs.merged <- merge_samples(shared.FAV2.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV5.Q1.Q2.merged <- merge_samples(shared.FAV5.Q1.Q2, "Sample_type", fun=mean)
+shared.FAV5.Q1.QIA2gs.merged <- merge_samples(shared.FAV5.Q1.QIA2gs, "Sample_type", fun=mean)
+shared.FAV5.Q2.QIA2gs.merged <- merge_samples(shared.FAV5.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.Q1.Q2.QIA2gs.merged <- merge_samples(shared.Q1.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q1.Q2.merged <- merge_samples(shared.FAV2.FAV5.Q1.Q2, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q1.QIA2gs.merged <- merge_samples(shared.FAV2.FAV5.Q1.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.FAV5.Q2.QIA2gs.merged <- merge_samples(shared.FAV2.FAV5.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV2.Q1.Q2.QIA2gs.merged <- merge_samples(shared.FAV2.Q1.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.FAV5.Q1.Q2.QIA2gs.merged <- merge_samples(shared.FAV5.Q1.Q2.QIA2gs, "Sample_type", fun=mean)
+shared.all.merged <- merge_samples(shared.all, "Sample_type", fun=mean)
+
+
+count.sep <- estimate_richness(Merged.18S.merged, measures="Observed")
+count.FAV2.FAV5 <- estimate_richness(shared.FAV2.FAV5.merged, measures="Observed")
+count.FAV2.Q1 <- estimate_richness(shared.FAV2.Q1.merged, measures="Observed")
+count.FAV2.Q2 <- estimate_richness(shared.FAV2.Q2.merged, measures="Observed")
+count.FAV2.QIA2gs <- estimate_richness(shared.FAV2.QIA2gs.merged, measures="Observed")
+count.FAV5.Q1 <- estimate_richness(shared.FAV5.Q1.merged, measures="Observed")
+count.FAV5.Q2 <- estimate_richness(shared.FAV5.Q2.merged, measures="Observed")
+count.FAV5.QIA2gs <- estimate_richness(shared.FAV5.QIA2gs.merged, measures="Observed")
+count.Q1.Q2 <- estimate_richness(shared.Q1.Q2.merged, measures="Observed")
+count.Q1.QIA2gs <- estimate_richness(shared.Q1.QIA2gs.merged, measures="Observed")
+count.Q2.QIA2gs <- estimate_richness(shared.Q2.QIA2gs.merged, measures="Observed")
+count.FAV2.FAV5.Q1 <- estimate_richness(shared.FAV2.FAV5.Q1.merged, measures="Observed")
+count.FAV2.FAV5.Q2 <- estimate_richness(shared.FAV2.FAV5.Q2.merged, measures="Observed")
+count.FAV2.FAV5.QIA2gs <- estimate_richness(shared.FAV2.FAV5.QIA2gs.merged, measures="Observed")
+count.FAV2.Q1.Q2 <- estimate_richness(shared.FAV2.Q1.Q2.merged, measures="Observed")
+count.FAV2.Q1.QIA2gs <- estimate_richness(shared.FAV2.Q1.QIA2gs.merged, measures="Observed")
+count.FAV2.Q2.QIA2gs <- estimate_richness(shared.FAV2.Q2.QIA2gs.merged, measures="Observed")
+count.FAV5.Q1.Q2 <- estimate_richness(shared.FAV5.Q1.Q2.merged, measures="Observed")
+count.FAV5.Q1.QIA2gs <- estimate_richness(shared.FAV5.Q1.QIA2gs.merged, measures="Observed")
+count.FAV5.Q2.QIA2gs <- estimate_richness(shared.FAV5.Q2.QIA2gs.merged, measures="Observed")
+count.Q1.Q2.QIA2gs <- estimate_richness(shared.Q1.Q2.QIA2gs.merged, measures="Observed")
+count.FAV2.FAV5.Q1.Q2 <- estimate_richness(shared.FAV2.FAV5.Q1.Q2.merged, measures="Observed")
+count.FAV2.FAV5.Q1.QIA2gs <- estimate_richness(shared.FAV2.FAV5.Q1.QIA2gs.merged, measures="Observed")
+count.FAV2.FAV5.Q2.QIA2gs <- estimate_richness(shared.FAV2.FAV5.Q2.QIA2gs.merged, measures="Observed")
+count.FAV2.Q1.Q2.QIA2gs <- estimate_richness(shared.FAV2.Q1.Q2.QIA2gs.merged, measures="Observed")
+count.FAV5.Q1.Q2.QIA2gs <- estimate_richness(shared.FAV5.Q1.Q2.QIA2gs.merged, measures="Observed")
+count.all <- estimate_richness(shared.all.merged, measures="Observed")
+
+
+
+count.sep <- t(count.sep)
+count.FAV2.FAV5 <- t(count.FAV2.FAV5)
+count.FAV2.Q1 <- t(count.FAV2.Q1)
+count.FAV2.Q2 <- t(count.FAV2.Q2)
+count.FAV2.QIA2gs <- t(count.FAV2.QIA2gs)
+count.FAV5.Q1 <- t(count.FAV5.Q1)
+count.FAV5.Q2 <- t(count.FAV5.Q2)
+count.FAV5.QIA2gs <- t(count.FAV5.QIA2gs)
+count.Q1.Q2 <- t(count.Q1.Q2)
+count.Q1.QIA2gs <- t(count.Q1.QIA2gs)
+count.Q2.QIA2gs <- t(count.Q2.QIA2gs)
+count.FAV2.FAV5.Q1 <- t(count.FAV2.FAV5.Q1)
+count.FAV2.FAV5.Q2 <- t(count.FAV2.FAV5.Q2)
+count.FAV2.FAV5.QIA2gs <- t(count.FAV2.FAV5.QIA2gs)
+count.FAV2.Q1.Q2 <- t(count.FAV2.Q1.Q2)
+count.FAV2.Q1.QIA2gs <- t(count.FAV2.Q1.QIA2gs)
+count.FAV2.Q2.QIA2gs <- t(count.FAV2.Q2.QIA2gs)
+count.FAV5.Q1.Q2 <- t(count.FAV5.Q1.Q2)
+count.FAV5.Q1.QIA2gs <- t(count.FAV5.Q1.QIA2gs)
+count.FAV5.Q2.QIA2gs <- t(count.FAV5.Q2.QIA2gs)
+count.Q1.Q2.QIA2gs <- t(count.Q1.Q2.QIA2gs)
+count.FAV2.FAV5.Q1.Q2 <- t(count.FAV2.FAV5.Q1.Q2)
+count.FAV2.FAV5.Q1.QIA2gs <- t(count.FAV2.FAV5.Q1.QIA2gs)
+count.FAV2.FAV5.Q2.QIA2gs <- t(count.FAV2.FAV5.Q2.QIA2gs)
+count.FAV2.Q1.Q2.QIA2gs <- t(count.FAV2.Q1.Q2.QIA2gs)
+count.FAV5.Q1.Q2.QIA2gs <- t(count.FAV5.Q1.Q2.QIA2gs)
+count.all <- t(count.all)
+
+
+
+
+colnames(count.FAV2.FAV5) <- "FAV2.FAV5"
+colnames(count.FAV2.Q1) <- "FAV2.Q1"
+colnames(count.FAV2.Q2) <- "FAV2.Q2"
+colnames(count.FAV2.QIA2gs) <- "FAV2.QIA2gs"
+colnames(count.FAV5.Q1) <- "FAV5.Q1"
+colnames(count.FAV5.Q2) <- "FAV5.Q2"
+colnames(count.FAV5.QIA2gs) <- "FAV5.QIA2gs"
+colnames(count.Q1.Q2) <- "Q1.Q2"
+colnames(count.Q1.QIA2gs) <- "Q1.QIA2gs"
+colnames(count.Q2.QIA2gs) <- "Q2.QIA2gs"
+colnames(count.FAV2.FAV5.Q1) <- "FAV2.FAV5.Q1"
+colnames(count.FAV2.FAV5.Q2) <- "FAV2.FAV5.Q2"
+colnames(count.FAV2.FAV5.QIA2gs) <- "FAV2.FAV5.QIA2gs"
+colnames(count.FAV2.Q1.Q2) <- "FAV2.Q1.Q2"
+colnames(count.FAV2.Q1.QIA2gs) <- "FAV2.Q1.QIA2gs"
+colnames(count.FAV2.Q2.QIA2gs) <- "FAV2.Q2.QIA2gs"
+colnames(count.FAV5.Q1.Q2) <- "FAV5.Q1.Q2"
+colnames(count.FAV5.Q1.QIA2gs) <- "FAV5.Q1.QIA2gs"
+colnames(count.FAV5.Q2.QIA2gs) <- "FAV5.Q2.QIA2gs"
+colnames(count.Q1.Q2.QIA2gs) <- "Q1.Q2.QIA2gs"
+colnames(count.FAV2.FAV5.Q1.Q2) <- "FAV2.FAV5.Q1.Q2"
+colnames(count.FAV2.FAV5.Q1.QIA2gs) <- "FAV2.FAV5.Q1.QIA2gs"
+colnames(count.FAV2.FAV5.Q2.QIA2gs) <- "FAV2.FAV5.Q2.QIA2gs"
+colnames(count.FAV2.Q1.Q2.QIA2gs) <- "FAV2.Q1.Q2.QIA2gs"
+colnames(count.FAV5.Q1.Q2.QIA2gs) <- "FAV5.Q1.Q2.QIA2gs"
+colnames(count.all) <- "All"
+
+
+
+
+
+shared.otus <- as.data.frame(cbind(count.sep, count.FAV2.FAV5, count.FAV2.Q1, count.FAV2.Q2, count.FAV2.QIA2gs, count.FAV5.Q1,
+                                   count.FAV5.Q2, count.FAV5.QIA2gs, count.Q1.Q2, count.Q1.QIA2gs, count.Q2.QIA2gs,
+                                   count.FAV2.FAV5.Q1, count.FAV2.FAV5.Q2, count.FAV2.FAV5.QIA2gs, count.FAV2.Q1.Q2, count.FAV2.Q1.QIA2gs,
+                                   count.FAV2.Q2.QIA2gs, count.FAV5.Q1.Q2, count.FAV5.Q1.QIA2gs, count.FAV5.Q2.QIA2gs, count.Q1.Q2.QIA2gs,
+                                   count.FAV2.FAV5.Q1.Q2, count.FAV2.FAV5.Q1.QIA2gs, count.FAV2.FAV5.Q2.QIA2gs, count.FAV2.Q1.Q2.QIA2gs,
+                                   count.FAV5.Q1.Q2.QIA2gs, count.all))
+
+
+
+
+vennplot.bacteria.Merged.18S<- draw.quintuple.venn(area1=shared.otus$FAV2, area2=shared.otus$FAV5, area3=shared.otus$Q1, area4=shared.otus$Q2, area5=shared.otus$QIA2gs,
+                                                   n12=shared.otus$FAV2.FAV5, n13=shared.otus$FAV2.Q1, n14=shared.otus$FAV2.Q2, n15=shared.otus$FAV2.QIA2gs,
+                                                   n23=shared.otus$FAV5.Q1, n24=shared.otus$FAV5.Q2, n25=shared.otus$FAV5.QIA2gs,
+                                                   n34=shared.otus$Q1.Q2, n35=shared.otus$Q1.QIA2gs, n45=shared.otus$Q2.QIA2gs,
+                                                   n123=shared.otus$FAV2.FAV5.Q1, n124=shared.otus$FAV2.FAV5.Q2, n125=shared.otus$FAV2.FAV5.QIA2gs,
+                                                   n134=shared.otus$FAV2.Q1.Q2, n135=shared.otus$FAV2.Q1.QIA2gs, n145=shared.otus$FAV2.Q2.QIA2gs,
+                                                   n234=shared.otus$FAV5.Q1.Q2, n235=shared.otus$FAV5.Q1.QIA2gs,  n245=shared.otus$FAV5.Q2.QIA2gs, n345=shared.otus$Q1.Q2.QIA2gs,
+                                                   n1234=shared.otus$FAV2.FAV5.Q1.Q2, n1235=shared.otus$FAV2.FAV5.Q1.QIA2gs, n1245=shared.otus$FAV2.FAV5.Q2.QIA2gs, 
+                                                   n1345=shared.otus$FAV2.Q1.Q2.QIA2gs, n2345=shared.otus$FAV5.Q1.Q2.QIA2gs,
+                                                   n12345=shared.otus$All,
+                                                   category = c("Fav2", "Fav5", "Q.PS", "Q.PS.Pro", "QIA2"), 
+                                                   fill = c("deepskyblue", "deepskyblue4", "coral", "darkorange3", "firebrick4"), 
+                                                   lty = "blank",  cex = 1, cat.cex = 1.5, cat.dist = 0.1, alpha=c(0.5,0.5,0.5, 0.5, 0.5))
+
+
+cairo_ps(file="Vennplot.Merged.18S.eps", width=12, height=9)
+grid.draw(vennplot.bacteria.Merged.18S)
+dev.off()
+
+
+
+cairo_ps(file="Kit.Venn.eps", width=10, height=6)
+gl<-grid.layout(nrow=2, ncol=2, heights=unit(c(1,20), "null"), widths=unit(c(20,20),"null"))
+vp.1<-viewport(layout.pos.col=1, layout.pos.row=1)
+vp.2<-viewport(layout.pos.col=2, layout.pos.row=1)
+vp.3<-viewport(layout.pos.col=1, layout.pos.row=2)
+vp.4<-viewport(layout.pos.col=2, layout.pos.row=2)
+pushViewport(viewport(layout=gl))
+pushViewport(vp.1)
+grid.text("A", gp = gpar(fontsize = 18))
+popViewport()
+pushViewport(vp.2)
+grid.text("B", gp = gpar(fontsize = 18))
+popViewport()
+pushViewport(vp.3)
+grid.draw(vennplot.bacteria.Merged.16S)
+popViewport()
+pushViewport(vp.4)
+grid.draw(vennplot.bacteria.Merged.18S)
+popViewport()
+dev.off()
+```
+
+ASVs per class
+
+```{r}
+
+ps_16S_no_neg_min4000.merged <- merge_samples(ps_16S_no_neg_min4000, "Kit", fun=mean)
+
+ps_16S_no_neg_min4000_presabse = transform_sample_counts(ps_16S_no_neg_min4000.merged, function(OTU) ifelse(OTU > 0, 1, OTU))
+
+ps_16S_no_neg_min4000_presabse.class <- tax_glom(ps_16S_no_neg_min4000_presabse, "Class")
+
+
+
+ps_16S_no_neg_min4000.otutable <- as.data.frame(as.matrix(t(otu_table(ps_16S_no_neg_min4000_presabse.class))))
+ps_16S_no_neg_min4000.otutable1 <- tibble::rownames_to_column(ps_16S_no_neg_min4000.otutable, var="ASVs")
+
+ps_16S_no_neg_min4000.otutable.tax <- as.data.frame(tax_table(ps_16S_no_neg_min4000_presabse.class), stringsAsFactors=FALSE)
+ps_16S_no_neg_min4000.otutable.tax1 <- tibble::rownames_to_column(ps_16S_no_neg_min4000.otutable.tax, var="ASVs")
+
+ps_16S_no_neg_min4000.table <- dplyr::left_join(ps_16S_no_neg_min4000.otutable1, ps_16S_no_neg_min4000.otutable.tax1, by = "ASVs") 
+
+ps_16S_no_neg_min4000.table <- ps_16S_no_neg_min4000.table %>%
+  dplyr::select(-ASVs, -Kingdom, -Order, -Family, -Genus, -Species)
+
+
+write.csv(ps_16S_no_neg_min4000.table, "Observed.16S.classes.csv")
+
+
+
+ps_18S_no_neg_min10000.merged <- merge_samples(ps_18S_no_neg_min10000, "Kit", fun=mean)
+
+ps_18S_no_neg_min10000_presabse = transform_sample_counts(ps_18S_no_neg_min10000.merged, function(OTU) ifelse(OTU > 0, 1, OTU))
+
+ps_18S_no_neg_min10000_presabse.class <- tax_glom(ps_18S_no_neg_min10000_presabse, "Class")
+
+
+
+ps_18S_no_neg_min10000.otutable <- as.data.frame(as.matrix(t(otu_table(ps_18S_no_neg_min10000_presabse.class))))
+ps_18S_no_neg_min10000.otutable1 <- tibble::rownames_to_column(ps_18S_no_neg_min10000.otutable, var="ASVs")
+
+ps_18S_no_neg_min10000.otutable.tax <- as.data.frame(tax_table(ps_18S_no_neg_min10000_presabse.class), stringsAsFactors=FALSE)
+ps_18S_no_neg_min10000.otutable.tax1 <- tibble::rownames_to_column(ps_18S_no_neg_min10000.otutable.tax, var="ASVs")
+
+ps_18S_no_neg_min10000.table <- dplyr::left_join(ps_18S_no_neg_min10000.otutable1, ps_18S_no_neg_min10000.otutable.tax1, by = "ASVs") 
+
+ps_18S_no_neg_min10000.table <- ps_18S_no_neg_min10000.table %>%
+  dplyr::select(-ASVs, -Kingdom, -Order, -Family, -Genus, -Species)
+
+
+write.csv(ps_18S_no_neg_min10000.table, "Observed.18S.classes.csv")
+
+```
+
+
+Metabarcoding biotic indices
+
+```{r}
+
+eg <- read.csv('~/Documents/Bioinformatics/Xav_FishFarm/EG_groups_bact.csv')
+weights <- read.csv('~/Documents/Bioinformatics/Xav_FishFarm/bMBI_weights.csv')
+
+
+eg_prop_calc <- 
+  function(data,eg) {
+    require(tidyverse)
+    data %>%
+      gather(SampleID, abund, - ASV) %>%
+      inner_join(eg, by = 'ASV') %>%
+      group_by(SampleID) %>%
+      mutate(N = sum(abund)) %>% 
+      group_by(SampleID, EG) %>%
+      dplyr::mutate(n = sum(abund) / N) %>%
+      summarise(n = first(n) * 100) %>%
+      spread(EG, n)
+  }
+
+
+MBI_calc <-
+  function(eg_prop_data, weights) {
+    require(dplyr)
+    eg_prop_data %>%
+      mutate(
+        MBI = (
+          weights [1, 2] %>% as.numeric() * I +
+            weights [2, 2] %>% as.numeric() * II +
+            weights [3, 2] %>% as.numeric() * III +
+            weights [4, 2] %>% as.numeric() * IV +
+            weights [5, 2] %>% as.numeric() * V
+        )
+      )
+  }
+
+
+kit.list <- unique(sample_data(ps_16S_no_neg_min4000)$Kit)
+
+mbi_data.total = data.frame()
+for (i in 1:length(kit.list)) {
+  
+kit.tab <- subset_samples(ps_16S_no_neg_min4000, Kit ==kit.list[i])
+
+otutab <- as.data.frame(as.matrix(t(otu_table(kit.tab))))
+otutab <-rownames_to_column(otutab)
+
+colnames(otutab)[1] <- "ASV"
+
+
+# read ASV table with samples as columns and ASV as rows--- 
+
+# transform to presence/absence----
+ASV_pa <- 
+  otutab %>% 
+  mutate_if(is.numeric,~if_else(.>0,1,0))
+
+eg_prop <- eg_prop_calc(ASV_pa, eg = eg)
+
+mbi_data <- MBI_calc(eg_prop_data = eg_prop, weights = weights)
+
+mbi_data$Kit <- kit.list[i]
+
+mbi_data.total <- rbind(mbi_data.total, mbi_data)
+}
+
+
+
+sd <- as.data.frame(as.matrix(sample_data(ps_16S.subtract.ps)))
+sd <-rownames_to_column(sd)
+ 
+
+mbi_data.total.sd <- left_join(mbi_data.total, sd, by = c("SampleID" = "rowname"))
+
+
+
+mbi_data.total.sd$Sample_type <- factor(mbi_data.total.sd$Sample_type, levels=c("PenA", "PenB", "PenC", "50A", "50B", "50C", 
+                                                                                "150A", "150B", "150C", "CTLA", "CTLB", "CTLC"))
+
+
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "PenA"] <- 5.17
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "PenB"] <- 6.17
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "PenC"] <- 6.37
+  
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "50A"] <- 3.05
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "50B"] <- 3
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "50C"] <- 3.46
+  
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "150A"] <- 2.37
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "150B"] <- 2.1
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "150C"] <- 2.45
+  
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "CTLA"] <- 2.27
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "CTLB"] <- 2.18
+mbi_data.total.sd$ES[mbi_data.total.sd$Sample_type == "CTLC"] <- 2.13
+
+
+mbi_data.total.sd$Kit2 <- ifelse(mbi_data.total.sd$Kit.x == "Q1", 'Q.PS',
+                                                  ifelse(mbi_data.total.sd$Kit.x == "Q2", 'Q.PS.Pro',
+                                                         ifelse(mbi_data.total.sd$Kit.x == "QIA2gs", 'QIA2', 
+                                                                ifelse(mbi_data.total.sd$Kit.x =="FAV2", 'FAV2',
+                                                                       ifelse(mbi_data.total.sd$Kit.x =="FAV5", 'FAV5', "No")))))
+
+mbi_data.total.sd$Kit2 = factor(mbi_data.total.sd$Kit2, levels = c("Q.PS", "Q.PS.Pro", "QIA2", "FAV2", "FAV5"))
+
+
+
+mbi_data.total.sd1 <- mbi_data.total.sd %>%
+  select(SampleID, I, II, III, IV, V)
+
+mbi_data.total.sd1 <- column_to_rownames(mbi_data.total.sd1, var = "SampleID")
+
+mbi_data.total.sd1 <- as.data.frame(mbi_data.total.sd1)
+
+mbi_data.total.sd2 <- mbi_data.total.sd %>%
+  select(-I, -II, -III, -IV, -V)
+
+mbi_data.total.sd2 <- as.data.frame(mbi_data.total.sd2)
+
+mbi_data.total.sd2 <- column_to_rownames(mbi_data.total.sd2, var = "SampleID")
+
+
+mbi_data.ps <- phyloseq(otu_table(mbi_data.total.sd1, taxa_are_rows=FALSE),
+                               sample_data(mbi_data.total.sd2))
+
+
+
+
+mbi_data.ps.sqrt <- transform_sample_counts(mbi_data.ps, function(x) sqrt(x))
+
+sample_data(mbi_data.ps.sqrt)$Distance = factor(sample_data(mbi_data.ps.sqrt)$Distance, levels = c("Pen", "50", "150", "CTL"))
+sample_data(mbi_data.ps.sqrt)$Kit2 = factor(sample_data(mbi_data.ps.sqrt)$Kit2, levels = c("FAV2", "FAV5", "Q.PS", "Q.PS.Pro", "QIA2"))
+
+
+mbi_data_ord = ordinate(mbi_data.ps.sqrt, "NMDS", "bray")
+
+
+p.mbi_data = plot_ordination(mbi_data.ps.sqrt, mbi_data_ord, color = "Kit2", shape = "Distance")
+p.mbi_data = p.mbi_data + geom_point(size = 3) +
+  theme(legend.title=element_text(size=16, color="black")) + 
+  theme(axis.title=element_text(size=16, color="black")) + 
+  theme(legend.text=element_text(size=14, color="black")) + 
+  theme(plot.title=element_text(size=14, color="black")) + 
+  theme(axis.text=element_text(size=14, color="black")) + 
+  theme(panel.background = element_rect(fill="transparent", colour = "grey50"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill="transparent", colour=NA),
+        legend.background = element_rect(fill="transparent"),
+        legend.key = element_rect(fill = NA)) + 
+  guides(shape = guide_legend(title="Distance (m)", override.aes = list(size = 2, color="black")),
+         color = guide_legend(title="Kit")) + 
+  scale_color_manual(values=colpalette) +
+  ggtitle("A")
+
+
+cairo_ps(file="~/Documents/Bioinformatics/Xav_FishFarm/Fish_Farm_NMDS.mbi_data.eps", width=7, height=5, bg="transparent")
+p.mbi_data
+dev.off()
+
+
+mbi_data.ps_df = as.data.frame(otu_table(mbi_data.ps))
+transformed_mbi_data <- wisconsin(sqrt(mbi_data.ps_df))
+transformed_mbi_data <- transformed_mbi_data[ order(row.names(transformed_mbi_data)), ]
+map_16S.1 = mbi_data.total.sd2[order(row.names(mbi_data.total.sd2)),]
+dis_mbi <- vegdist(transformed_mbi_data, method="bray")
+adonis(dis_mbi ~ Kit2*Distance,data=map_16S.1, permutations=999)
+
+
+
+attach(mbi_data.ps_df)
+pairwise.perm.manova(dis_mbi, map_16S.1$Kit2, nperm=999)
+
+pairwise.perm.manova(dis_mbi, map_16S.1$Distance, nperm=999)
+
+
+eg <- read_csv('~/Documents/Bioinformatics/Xav_FishFarm/EG_groups_euk.csv')
+weights <- read_csv('~/Documents/Bioinformatics/Xav_FishFarm/eMBI_weights.csv')
+
+
+eg_prop_calc <- 
+  function(data,eg) {
+    require(tidyverse)
+    data %>%
+      gather(SampleID, abund, - ASV) %>%
+      inner_join(eg, by = 'ASV') %>%
+      group_by(SampleID) %>%
+      mutate(N = sum(abund)) %>% 
+      group_by(SampleID, EG) %>%
+      mutate(n = sum(abund) / N) %>%
+      summarise(n = first(n) * 100) %>%
+      spread(EG, n)
+  }
+
+
+MBI_calc <-
+  function(eg_prop_data, weights) {
+    require(dplyr)
+    eg_prop_data %>%
+      mutate(
+        MBI = (
+          weights [1, 2] %>% as.numeric() * I +
+            weights [2, 2] %>% as.numeric() * II +
+            weights [3, 2] %>% as.numeric() * III +
+            weights [4, 2] %>% as.numeric() * IV +
+            weights [5, 2] %>% as.numeric() * V
+        )
+      )
+  }
+
+
+kit.list <- unique(sample_data(ps_18S_no_neg_min10000)$Kit)
+
+eukmbi_data.total = data.frame()
+for (i in 1:length(kit.list)) {
+  
+  kit.tab <- subset_samples(ps_18S_no_neg_min10000, Kit ==kit.list[i])
+  
+  otutab <- as.data.frame(as.matrix(t(otu_table(kit.tab))))
+  otutab <-rownames_to_column(otutab)
+  
+  colnames(otutab)[1] <- "ASV"
+  
+  
+  # read ASV table with samples as columns and ASV as rows--- 
+  
+  # transform to presence/absence----
+  ASV_pa <- 
+    otutab %>% 
+    mutate_if(is.numeric,~if_else(.>0,1,0))
+  
+  eg_prop <- eg_prop_calc(ASV_pa, eg = eg)
+  
+  eukmbi_data <- MBI_calc(eg_prop_data = eg_prop, weights = weights)
+  
+  eukmbi_data$Kit <- kit.list[i]
+  
+  eukmbi_data.total <- rbind(eukmbi_data.total, eukmbi_data)
+}
+
+
+
+sd <- as.data.frame(as.matrix(sample_data(ps_18S_no_neg_min10000)))
+sd <-rownames_to_column(sd)
+
+
+eukmbi_data.total.sd <- left_join(eukmbi_data.total, sd, by = c("SampleID" = "rowname"))
+
+
+
+
+eukmbi_data.total.sd1 <- eukmbi_data.total.sd %>%
+  select(SampleID, I, II, III, IV, V)
+
+eukmbi_data.total.sd1 <- column_to_rownames(eukmbi_data.total.sd1, var = "SampleID")
+
+eukmbi_data.total.sd1 <- as.data.frame(eukmbi_data.total.sd1)
+
+eukmbi_data.total.sd2 <- eukmbi_data.total.sd %>%
+  select(-I, -II, -III, -IV, -V)
+
+eukmbi_data.total.sd2 <- as.data.frame(eukmbi_data.total.sd2)
+
+eukmbi_data.total.sd2 <- column_to_rownames(eukmbi_data.total.sd2, var = "SampleID")
+
+
+eukmbi_data.ps <- phyloseq(otu_table(eukmbi_data.total.sd1, taxa_are_rows=FALSE),
+                           sample_data(eukmbi_data.total.sd2))
+
+
+
+
+eukmbi_data.ps.sqrt <- transform_sample_counts(eukmbi_data.ps, function(x) sqrt(x))
+
+sample_data(eukmbi_data.ps.sqrt)$Distance = factor(sample_data(eukmbi_data.ps.sqrt)$Distance, levels = c("Pen", "50", "150", "CTL"))
+sample_data(eukmbi_data.ps.sqrt)$Kit2 = factor(sample_data(eukmbi_data.ps.sqrt)$Kit2, levels = c("FAV2", "FAV5", "Q.PS", "Q.PS.Pro", "QIA2"))
+
+
+eukmbi_data_ord = ordinate(eukmbi_data.ps.sqrt, "NMDS", "bray")
+
+
+p.eukmbi_data = plot_ordination(eukmbi_data.ps.sqrt, eukmbi_data_ord, color = "Kit2", shape = "Distance")
+p.eukmbi_data = p.eukmbi_data + geom_point(size = 3) +
+  theme(legend.title=element_text(size=16, color="black")) + 
+  theme(axis.title=element_text(size=16, color="black")) + 
+  theme(legend.text=element_text(size=14, color="black")) + 
+  theme(plot.title=element_text(size=14, color="black")) + 
+  theme(axis.text=element_text(size=14, color="black")) + 
+  theme(panel.background = element_rect(fill="transparent", colour = "grey50"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill="transparent", colour=NA),
+        legend.background = element_rect(fill="transparent"),
+        legend.key = element_rect(fill = NA)) + 
+  guides(shape = guide_legend(title="Distance (m)", override.aes = list(size = 2, color="black")),
+         color = guide_legend(title="Kit")) + 
+  scale_color_manual(values=colpalette) +
+  ggtitle("B")
+
+
+cairo_ps(file="~/Documents/Bioinformatics/Xav_FishFarm/Fish_Farm_NMDS.eukmbi_data.eps", width=7, height=5, bg="transparent")
+p.eukmbi_data
+dev.off()
+
+
+
+postscript(file="~/Documents/Bioinformatics/Xav_FishFarm/MBI_NMDS.eps", width=10, height=5, colormodel="cmyk", family="serif", horizontal=FALSE, onefile=FALSE, paper="special")
+grid.newpage()
+pushViewport(viewport(layout=grid.layout(1,2, heights=c(5,5), width=c(5, 6))))
+print(p.mbi_data + theme(legend.position = ""), vp=viewport(layout.pos.row=1, layout.pos.col=1))
+print(p.eukmbi_data, vp=viewport(layout.pos.row=1, layout.pos.col=2))
+dev.off()
+```
+
+Rarefactions
+
+```{r}
+ps_16S_no_neg = ps_16S.subtract.ps %>% subset_samples(Kit != "neg") %>% subset_samples(Kit != "negMQ") %>% subset_samples(Kit != "comb-neg")
+ps_16S_no_neg = filter_taxa(ps_16S_no_neg, function(x) sum(x) > 0, TRUE)
+
+
+sample_data(ps_16S_no_neg)$Kit2 <- ifelse(sample_data(ps_16S_no_neg)$Kit == "Q1", 'Q.PS',
+                                                  ifelse(sample_data(ps_16S_no_neg)$Kit == "Q2", 'Q.PS.Pro',
+                                                         ifelse(sample_data(ps_16S_no_neg)$Kit == "QIA2gs", 'QIA2', 
+                                                                ifelse(sample_data(ps_16S_no_neg)$Kit =="FAV2", 'FAV2',
+                                                                       ifelse(sample_data(ps_16S_no_neg)$Kit =="FAV5", 'FAV5', "No")))))
+
+
+
+sample_data(ps_16S_no_neg)$Kit2 = factor(sample_data(ps_16S_no_neg)$Kit2, levels = c("Q.PS", "Q.PS.Pro", "QIA2", "FAV2", "FAV5"))
+palette = c("coral", "darkorange3", "firebrick4", "deepskyblue", "deepskyblue4")
+
+
+ps_16S_no_neg_rarefaction <- ggrare(ps_16S_no_neg, step=200, color="Kit2", se = FALSE) + 
+  ggplot2::theme_bw() +
+  ggplot2::xlab("# Reads") +
+  ggplot2::ylab("# ASVs") +
+  ggtitle("A")  + 
+  theme(axis.title=element_text(size=12, color="black")) + 
+  theme(axis.text=element_text(size=11, color="black")) + 
+  theme(plot.title=element_text(size=14, color="black")) + 
+  theme(legend.position="right") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  geom_vline(xintercept = 4400, linetype="dashed", color = "gray60", size=0.75) +
+  scale_colour_manual(values=palette) + 
+  guides(color = guide_legend(title="Kit"))  
+
+
+
+
+
+
+
+ps_18S_no_neg = ps_18S.subtract.ps %>% subset_samples(Kit != "neg") %>% subset_samples(Kit != "negMQ") %>% subset_samples(Kit != "comb-neg")
+ps_18S_no_neg = filter_taxa(ps_18S_no_neg, function(x) sum(x) > 0, TRUE)
+
+
+sample_data(ps_18S_no_neg)$Kit2 <- ifelse(sample_data(ps_18S_no_neg)$Kit == "Q1", 'Q.PS',
+                                          ifelse(sample_data(ps_18S_no_neg)$Kit == "Q2", 'Q.PS.Pro',
+                                                 ifelse(sample_data(ps_18S_no_neg)$Kit == "QIA2gs", 'QIA2', 
+                                                        ifelse(sample_data(ps_18S_no_neg)$Kit =="FAV2", 'FAV2',
+                                                               ifelse(sample_data(ps_18S_no_neg)$Kit =="FAV5", 'FAV5', "No")))))
+
+
+
+sample_data(ps_18S_no_neg)$Kit2 = factor(sample_data(ps_18S_no_neg)$Kit2, levels = c("Q.PS", "Q.PS.Pro", "QIA2", "FAV2", "FAV5"))
+palette = c("coral", "darkorange3", "firebrick4", "deepskyblue", "deepskyblue4")
+
+
+ps_18S_no_neg_rarefaction <- ggrare(ps_18S_no_neg, step=200, color="Kit2", se = FALSE) + 
+  ggplot2::theme_bw() +
+  ggplot2::xlab("# Reads") +
+  ggplot2::ylab("# ASVs") +
+  ggtitle("B")  + 
+  theme(axis.title=element_text(size=12, color="black")) + 
+  theme(axis.text=element_text(size=11, color="black")) + 
+  theme(plot.title=element_text(size=14, color="black")) + 
+  theme(legend.position="right") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  geom_vline(xintercept = 10000, linetype="dashed", color = "gray60", size=0.75) +
+  scale_colour_manual(values=palette) + 
+  guides(color = guide_legend(title="Kit"))  
+
+
+
+
+postscript(file="Rarefaction.eps", width=10, height=5, colormodel="cmyk", family="serif", horizontal=FALSE, onefile=FALSE, paper="special")
+grid.newpage()
+pushViewport(viewport(layout=grid.layout(1,2, heights=c(5,5), width=c(5, 6))))
+print(ps_16S_no_neg_rarefaction + theme(legend.position = ""), vp=viewport(layout.pos.row=1, layout.pos.col=1))
+print(ps_18S_no_neg_rarefaction, vp=viewport(layout.pos.row=1, layout.pos.col=2))
+dev.off()
+```
+
